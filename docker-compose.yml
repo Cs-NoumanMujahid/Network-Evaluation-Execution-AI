@@ -1,0 +1,221 @@
+version: '3.8'
+
+services:
+  dvwa:
+    build: .
+    container_name: dvwa-web
+    ports:
+      - "8080:80"
+    environment:
+      - DEFAULT_SECURITY_LEVEL=low
+    depends_on:
+      - db
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.10
+
+  db:
+    image: mysql:5.7
+    container_name: dvwa-db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: dvwa
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.11
+
+  sniffer:
+    image: nicolaka/netshoot
+    container_name: traffic-sniffer
+    network_mode: "service:dvwa"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./pcaps:/pcaps
+    command: sh -c "tcpdump -i eth0 -w /pcaps/traffic_%Y%m%d_%H%M%S.pcap -G 15"
+    depends_on:
+      - dvwa
+
+  client1:
+    image: curlimages/curl:latest
+    container_name: client1
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.101
+    depends_on:
+      - dvwa
+    command: >
+      sh -c "
+      echo 'Client 1 starting...';
+      while true; do
+        curl -s http://172.20.0.10/dvwa/ > /dev/null;
+        sleep \$((RANDOM % 8 + 3));
+        curl -s http://172.20.0.10/dvwa/about.php > /dev/null;
+        sleep \$((RANDOM % 12 + 5));
+        curl -s http://172.20.0.10/dvwa/instructions.php > /dev/null;
+        sleep \$((RANDOM % 6 + 2));
+        curl -s http://172.20.0.10/dvwa/setup.php > /dev/null;
+        sleep \$((RANDOM % 15 + 8));
+        curl -s http://172.20.0.10/dvwa/phpinfo.php > /dev/null;
+        sleep \$((RANDOM % 10 + 4));
+      done
+      "
+
+  client2:
+    image: curlimages/curl:latest
+    container_name: client2
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.102
+    depends_on:
+      - dvwa
+    command: >
+      sh -c "
+      echo 'Client 2 starting...';
+      sleep 7;
+      while true; do
+        curl -s http://172.20.0.10/dvwa/security.php > /dev/null;
+        sleep \$((RANDOM % 20 + 10));
+        curl -s http://172.20.0.10/dvwa/about.php > /dev/null;
+        sleep \$((RANDOM % 25 + 15));
+        curl -s http://172.20.0.10/dvwa/ > /dev/null;
+        sleep \$((RANDOM % 10 + 5));
+        curl -s http://172.20.0.10/dvwa/instructions.php > /dev/null;
+        sleep \$((RANDOM % 30 + 10));
+        curl -s http://172.20.0.10/dvwa/phpinfo.php > /dev/null;
+        sleep \$((RANDOM % 18 + 8));
+      done
+      "
+
+  client3:
+    image: curlimages/curl:latest
+    container_name: client3
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.103
+    depends_on:
+      - dvwa
+    command: >
+      sh -c "
+      echo 'Client 3 starting...';
+      sleep 13;
+      while true; do
+        curl -s http://172.20.0.10/dvwa/phpinfo.php > /dev/null;
+        sleep \$((RANDOM % 35 + 20));
+        curl -s http://172.20.0.10/dvwa/ > /dev/null;
+        sleep \$((RANDOM % 12 + 6));
+        curl -s http://172.20.0.10/dvwa/about.php > /dev/null;
+        sleep \$((RANDOM % 18 + 8));
+        curl -s http://172.20.0.10/dvwa/setup.php > /dev/null;
+        sleep \$((RANDOM % 40 + 20));
+        curl -s http://172.20.0.10/dvwa/instructions.php > /dev/null;
+        sleep \$((RANDOM % 15 + 5));
+      done
+      "
+
+  cicflow:
+    build: ./cicflowmeter
+    container_name: cicflowmeter
+    volumes:
+      - ./pcaps:/pcaps:ro
+      - ./flows:/flows
+      - ./process_pcaps.sh:/app/process_pcaps.sh:ro
+    working_dir: /app
+    entrypoint: ["/bin/sh"]
+    command: ["/app/process_pcaps.sh"]
+    depends_on:
+      - sniffer
+    networks:
+      - nexa-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.8.0
+    container_name: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - nexa-net
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  kafka-producer:
+    build: ./kafka_producer
+    container_name: kafka-producer
+    environment:
+      KAFKA_BROKER: kafka:29092
+      KAFKA_TOPIC: flows
+      FLOWS_DIR: /flows
+      BATCH_SIZE: 5
+      SCAN_INTERVAL: 2
+    volumes:
+      - ./flows:/flows:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - nexa-net
+    restart: unless-stopped
+
+  ml-consumer:
+    build: ./ml_consumer
+    container_name: ml-consumer
+    environment:
+      KAFKA_BROKER: kafka:29092
+      KAFKA_TOPIC: flows
+      CONFIDENCE_THRESHOLD: "0.80"
+      BACKEND_URL: "http://host.docker.internal:8000"
+      SOURCE_TYPE: "website"
+      REGISTERED_ID: "1"
+      HEALTH_INTERVAL: "60"
+    volumes:
+      - ./ml_consumer/model:/app/model:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - nexa-net
+    restart: unless-stopped
+
+  kali-attacker:
+    build: ./kali_attacker
+    container_name: kali-attacker
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.200
+    depends_on:
+      - dvwa
+    volumes:
+      - ./kali_attacks:/attacks
+    command: tail -f /dev/null
+
+networks:
+  nexa-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  kafka_data:
+    driver: local

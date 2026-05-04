@@ -1,0 +1,31 @@
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('flows/ingest/', views.FlowIngestView.as_view()),
+    path('dashboard/stats/', views.DashboardStatsView.as_view()),
+    path('dashboard/attack-types/', views.AttackTypesView.as_view()),
+    path('dashboard/severity/', views.SeverityDistributionView.as_view()),
+    path('dashboard/traffic-volume/', views.TrafficVolumeView.as_view()),
+    path('dashboard/top-attackers/', views.TopAttackersView.as_view()),
+    path('dashboard/pipeline-status/', views.PipelineStatusView.as_view()),
+    path('alerts/', views.AlertListView.as_view()),
+    path('sites/', views.SiteListCreateView.as_view()),
+    path('sites/<int:pk>/', views.SiteDetailView.as_view()),
+    path('devices/', views.DeviceListCreateView.as_view()),
+    path('devices/<int:pk>/', views.DeviceDetailView.as_view()),
+    path('health/pipeline/', views.PipelineHealthView.as_view()),
+    path('health/targets/', views.TargetHealthView.as_view()),
+    path('health/history/', views.HealthHistoryView.as_view()),
+    path('simulation/start/', views.SimulationStartView.as_view()),
+    path('simulation/status/', views.SimulationStatusView.as_view()),
+    path('simulation/stop/', views.SimulationStopView.as_view()),
+    path('simulation/live-feed/', views.SimulationLiveFeedView.as_view()),
+    path('incidents/', views.IncidentListView.as_view()),
+    path('incidents/stats/', views.IncidentStatsView.as_view()),
+    path('incidents/timeline/', views.IncidentTimelineView.as_view()),
+    path('incidents/attack-distribution/', views.IncidentAttackDistributionView.as_view()),
+    path('incidents/<int:pk>/', views.IncidentDetailView.as_view()),
+    path('incidents/<int:pk>/status/', views.IncidentStatusUpdateView.as_view()),
+    path('incidents/<int:pk>/ip-history/', views.IPHistoryView.as_view()),
+]
