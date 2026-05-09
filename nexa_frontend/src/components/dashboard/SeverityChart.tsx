@@ -42,7 +42,7 @@ export default function SeverityChart({ data, loading }: SeverityChartProps) {
   return (
     <div className="relative">
       <h2 className="text-lg font-medium mb-6">Severity Distribution</h2>
-      <div className="absolute inset-0 bg-cyber-amber/5 dark:bg-cyber-amber/15 rounded-full blur-3xl -z-10" />
+
       <ChartContainer config={chartConfig} className="min-h-[250px] w-full">
         <BarChart accessibilityLayer data={chartData}>
           <defs>

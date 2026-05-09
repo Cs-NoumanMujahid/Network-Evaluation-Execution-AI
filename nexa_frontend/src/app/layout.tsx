@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { SourceProvider } from "@/components/providers/SourceContext";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import FrozenMain from "@/components/FrozenMain";
 import { cookies } from "next/headers";
 
 const inter = Inter({
@@ -26,7 +27,7 @@ export default async function RootLayout({
 
   const cookieStore = await cookies()
   const defaultOpen = cookieStore.get("sidebar_state")?.value === "true"
-  
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body
@@ -41,10 +42,10 @@ export default async function RootLayout({
           <SourceProvider>
             <SidebarProvider defaultOpen={defaultOpen}>
               <AppSidebar />
-              <main className="w-full">
+              <FrozenMain>
                 <Navbar />
                 <div className="px-4">{children}</div>
-              </main>
+              </FrozenMain>
             </SidebarProvider>
           </SourceProvider>
         </ThemeProvider>

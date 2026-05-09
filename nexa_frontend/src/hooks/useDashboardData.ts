@@ -228,7 +228,7 @@ export const useDashboardData = () => {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 15000); 
+    const interval = setInterval(fetchData, 15000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
@@ -257,10 +257,10 @@ export const useDashboardData = () => {
           if (data.latest_alerts && data.latest_alerts.length > 0) {
             setAlerts((prev) => {
               if (!prev) return prev;
-              
+
               const existingIds = new Set(prev.results.map((a) => a.id));
               const uniqueNewAlerts = data.latest_alerts.filter((a: AlertResult) => !existingIds.has(a.id));
-              
+
               if (uniqueNewAlerts.length === 0) return prev;
 
               const newResults = [...uniqueNewAlerts, ...prev.results].slice(0, 100);

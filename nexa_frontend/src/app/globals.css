@@ -28,7 +28,7 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  
+
   --color-cyber-blue: #3B82F6;
   --color-cyber-teal: #14B8A6;
   --color-cyber-amber: #F59E0B;
@@ -41,9 +41,17 @@
   --radius-sm: calc(var(--radius) - 4px);
 
   --animate-pulse-slow: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
   @keyframes pulse-slow {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
+
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.6;
+    }
   }
 }
 
@@ -68,13 +76,19 @@
     --border: #E2E8F0;
     --input: #E2E8F0;
     --ring: #3B82F6;
-    --radius: 0.75rem; /* 12px */
-    
-    --chart-1: #14B8A6; /* Teal */
-    --chart-2: #3B82F6; /* Blue */
-    --chart-3: #F59E0B; /* Amber */
-    --chart-4: #F97316; /* Orange */
-    --chart-5: #EF4444; /* Red */
+    --radius: 0.75rem;
+    /* 12px */
+
+    --chart-1: #14B8A6;
+    /* Teal */
+    --chart-2: #3B82F6;
+    /* Blue */
+    --chart-3: #F59E0B;
+    /* Amber */
+    --chart-4: #F97316;
+    /* Orange */
+    --chart-5: #EF4444;
+    /* Red */
   }
 
   .dark {
@@ -104,6 +118,7 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }

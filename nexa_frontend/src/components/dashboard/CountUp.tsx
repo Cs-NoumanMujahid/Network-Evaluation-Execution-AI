@@ -25,7 +25,7 @@ export default function CountUp({
     const step = (timestamp: number) => {
       if (!startTime) startTime = timestamp;
       const progress = Math.min((timestamp - startTime) / duration, 1);
-      
+
       const currentCount = progress * end;
       setCount(currentCount);
 

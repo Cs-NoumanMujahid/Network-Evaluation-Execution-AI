@@ -53,7 +53,7 @@ export default function TrafficVolumeChart({ data, loading }: TrafficVolumeChart
   return (
     <div className="relative">
       <h2 className="text-lg font-medium mb-6">Traffic Volume (Last 60m)</h2>
-      <div className="absolute inset-0 bg-cyber-blue/5 dark:bg-cyber-blue/15 rounded-full blur-3xl -z-10" />
+
       <ChartContainer config={chartConfig} className="min-h-[250px] w-full">
         <AreaChart accessibilityLayer data={chartData} margin={{ left: 12, right: 12 }}>
           <defs>

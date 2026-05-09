@@ -61,7 +61,7 @@ const StatCards = ({ stats, loading }: StatCardsProps) => {
         >
           <Card className={`relative overflow-hidden border-border/40 ${card.bg}`}>
             <div className="absolute top-0 right-0 p-3 opacity-10">
-               <card.icon className={`h-16 w-16 ${card.color}`} />
+              <card.icon className={`h-16 w-16 ${card.color}`} />
             </div>
             <CardHeader className="flex flex-row items-center justify-between pb-2 relative z-10">
               <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{card.title}</CardTitle>

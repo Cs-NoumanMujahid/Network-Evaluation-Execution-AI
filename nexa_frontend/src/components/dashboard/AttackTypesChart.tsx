@@ -68,7 +68,7 @@ export default function AttackTypesChart({ data, loading }: AttackTypesChartProp
   return (
     <div className="relative">
       <h2 className="text-lg font-medium mb-6">Attack Types</h2>
-      <div className="absolute inset-0 bg-cyber-blue/5 dark:bg-cyber-blue/15 rounded-full blur-3xl -z-10" />
+
       <ChartContainer
         config={chartConfig}
         className="mx-auto aspect-square max-h-[250px]"
