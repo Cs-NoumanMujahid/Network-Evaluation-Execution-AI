@@ -7,9 +7,9 @@ from channels.routing import ProtocolTypeRouter, URLRouter
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'ids_backend.settings')
 
-django.setup()  # ✅ wake Django up FIRST
+django.setup()  
 
-import api.routing  # ✅ now it's safe
+import api.routing  
 
 application = ProtocolTypeRouter(
     {

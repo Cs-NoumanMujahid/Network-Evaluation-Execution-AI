@@ -1,8 +1,11 @@
 import threading
+import os
+import shutil
 from datetime import timedelta
 from django.db.models import Count, Max, Min, Q
 from django.db.models.functions import TruncDate, TruncHour, TruncMinute
 from django.utils import timezone
+from django.conf import settings
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from rest_framework import generics, status
@@ -43,12 +46,69 @@ def _send_group(group, event_type, payload):
     async_to_sync(channel_layer.group_send)(group, {'type': event_type, 'payload': payload})
 
 
+class ScanResetView(APIView):
+    def post(self, request):
+        try:
+            # 1. Clear database tables containing operational metrics/alerts
+            FlowRecord.objects.all().delete()
+            Incident.objects.all().delete()
+            SystemHealth.objects.all().delete()
+            TargetHealth.objects.all().delete()
+            SimulationSession.objects.all().delete()
+        except Exception as e:
+            return Response(
+                {"status": "error", "message": f"Database cleanup failed: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # 2. Clear pcaps and flows directories on filesystem
+        pcaps_dir = settings.BASE_DIR.parent / 'pcaps'
+        flows_dir = settings.BASE_DIR.parent / 'flows'
+
+        for directory in [pcaps_dir, flows_dir]:
+            if os.path.exists(directory):
+                for item in os.listdir(directory):
+                    item_path = os.path.join(directory, item)
+                    try:
+                        if os.path.isfile(item_path) or os.path.islink(item_path):
+                            os.unlink(item_path)
+                        elif os.path.isdir(item_path):
+                            shutil.rmtree(item_path)
+                    except Exception as e:
+                        print(f"Failed to delete {item_path}: {e}")
+
+        # 3. Broadcast empty state to active WebSocket dashboard client connections
+        payload = {
+            'type': 'dashboard_update',
+            'total_flows': 0,
+            'total_alerts': 0,
+            'active_alerts': 0,
+            'detection_rate': 0.0,
+            'latest_alerts': [],
+        }
+        _send_group('dashboard', 'dashboard_broadcast', payload)
+        _send_group('health', 'health_broadcast', {
+            'type': 'health_update',
+            'kafka': True,
+            'ml_consumer': False,
+            'cicflowmeter': True,
+            'tcpdump': True,
+            'flows_per_minute': 0,
+            'alerts_per_minute': 0,
+        })
+
+        return Response({"status": "ok"})
+
+
 class FlowIngestView(APIView):
     def post(self, request):
         flows = request.data.get('flows', [])
+        now = timezone.now()
+        print(f"DEBUG: Ingesting flows at {now}")
         saved = 0
         alert_count = 0
         for item in flows:
+            item['timestamp'] = now
             flow = FlowRecord.objects.create(**item)
             saved += 1
             if flow.is_alert:
@@ -65,15 +125,13 @@ class FlowIngestView(APIView):
         total_flows = FlowRecord.objects.count()
         total_alerts = FlowRecord.objects.filter(is_alert=True).count()
         active_alerts = Incident.objects.filter(status='open').count()
-        benign_flows = FlowRecord.objects.filter(prediction__iexact='Benign').count()
-        # System Efficiency is represented as the percentage of benign flows
-        efficiency = (benign_flows / total_flows * 100) if total_flows else 100
+        threat_rate = (total_alerts / total_flows * 100) if total_flows else 0.0
         payload = {
             'type': 'dashboard_update',
             'total_flows': total_flows,
             'total_alerts': total_alerts,
             'active_alerts': active_alerts,
-            'detection_rate': round(efficiency, 2),
+            'detection_rate': round(threat_rate, 2),
             'latest_alerts': list(
                 FlowRecord.objects.filter(is_alert=True).order_by('-timestamp')[:10].values(
                     'timestamp', 'prediction', 'severity', 'src_ip', 'dst_ip', 'confidence'
@@ -97,15 +155,13 @@ class DashboardStatsView(APIView):
         total_flows = qs.count()
         total_alerts = qs.filter(is_alert=True).count()
         active_alerts = incident_qs.filter(status='open').count()
-        benign_flows = qs.filter(prediction__iexact='Benign').count()
-        # System Efficiency is represented as the percentage of benign flows
-        efficiency = (benign_flows / total_flows * 100) if total_flows else 100
+        threat_rate = (total_alerts / total_flows * 100) if total_flows else 0.0
         return Response(
             {
                 'total_flows': total_flows,
                 'total_alerts': total_alerts,
                 'active_alerts': active_alerts,
-                'detection_rate': round(efficiency, 2),
+                'detection_rate': round(threat_rate, 2),
                 'benign_flows': benign_flows,
             }
         )
@@ -146,6 +202,10 @@ class TrafficVolumeView(APIView):
             alerts=Count('id', filter=Q(is_alert=True)),
         ).order_by('minute')
 
+        print(f"DEBUG: Found {len(grouped)} minutes in window {start_time} to {now}")
+        if len(grouped) > 0:
+            print(f"DEBUG: First minute: {grouped[0]['minute']}, Last minute: {grouped[len(grouped)-1]['minute']}")
+
         data_map = {x['minute'].strftime('%H:%M'): x for x in grouped}
 
         labels = []
@@ -184,6 +244,31 @@ class TopAttackersView(APIView):
             preds = qs.filter(src_ip=row['src_ip']).values_list('prediction', flat=True).distinct()
             attackers.append({'src_ip': row['src_ip'], 'count': row['count'], 'attack_types': list(preds)})
         return Response({'attackers': attackers})
+
+
+class TopTargetsView(APIView):
+    def get(self, request):
+        limit = int(request.query_params.get('limit', 5))
+        qs = FlowRecord.objects.filter(is_alert=True)
+        source_type = _source_type(request)
+        if source_type:
+            qs = qs.filter(source_type=source_type)
+        top = qs.values('dst_ip').annotate(count=Count('id')).order_by('-count')[:limit]
+        targets = []
+        for row in top:
+            target_qs = qs.filter(dst_ip=row['dst_ip'])
+            preds = target_qs.values_list('prediction', flat=True).distinct()
+            ports = target_qs.values_list('dst_port', flat=True).distinct()
+            last_record = target_qs.order_by('-timestamp').first()
+            last_seen = last_record.timestamp if last_record else None
+            targets.append({
+                'dst_ip': row['dst_ip'],
+                'count': row['count'],
+                'ports': list(ports),
+                'attack_types': list(preds),
+                'last_seen': last_seen,
+            })
+        return Response({'targets': targets})
 
 
 class PipelineStatusView(APIView):

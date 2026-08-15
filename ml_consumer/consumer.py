@@ -7,7 +7,7 @@ import threading
 import numpy as np
 import pandas as pd
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from kafka import KafkaConsumer
 from tensorflow.keras.models import load_model
 
@@ -19,7 +19,7 @@ SOURCE_TYPE = os.getenv("SOURCE_TYPE", "website")
 REGISTERED_ID = os.getenv("REGISTERED_ID", "1")
 HEALTH_INTERVAL = int(os.getenv("HEALTH_INTERVAL", "10"))
 
-# ── CONFIG ────────────────────────────────────────────────────────────────────
+# ── WHITELIST ─────────────────────────────────────────────────────────────────
 
 WHITELIST_IPS = {
     "172.20.0.101",
@@ -27,7 +27,9 @@ WHITELIST_IPS = {
     "172.20.0.103"
 }
 
-RECOMMENDED_ACTIONS = {
+# ── RECOMMENDED ACTIONS ───────────────────────────────────────────────────────
+
+RECOMMENDED_ACTIONS_WEBSITE = {
     "PortScan": "Block source IP in firewall. Review open ports on target. Disable unnecessary services.",
     "SQL-Injection": "Review and sanitize all database queries. Enable WAF rules. Check for unauthorized data access.",
     "BruteForce-Web": "Implement rate limiting on login endpoint. Enable account lockout after 5 failed attempts. Consider 2FA.",
@@ -43,6 +45,27 @@ RECOMMENDED_ACTIONS = {
     "DoS-SlowHTTPTest": "Configure minimum data rate limits. Enable connection timeouts on web server.",
     "Heartbleed": "Update OpenSSL immediately. Revoke and reissue all SSL certificates.",
 }
+
+RECOMMENDED_ACTIONS_IOT = {
+    "Reconnaissance & Access Attack": "Isolate affected IoT devices. Review network access controls. Change default credentials on all devices.",
+    "backdoor": "Immediately isolate affected device. Perform factory reset. Update firmware. Review network logs.",
+    "ransomware": "Disconnect affected devices immediately. Do not pay ransom. Restore from backup. Report to authorities.",
+    "mitm": "Enable encrypted communications on all IoT devices. Implement certificate pinning. Review ARP tables.",
+}
+
+# ── IOT LABEL MAPPING ─────────────────────────────────────────────────────────
+# Verified from nexa-xgbclassifier.ipynb notebook
+# attack_encoded values confirmed from value_counts()
+
+IOT_LABEL_MAPPING = {
+    0: "Benign",
+    1: "Reconnaissance & Access Attack",
+    2: "backdoor",
+    3: "mitm",
+    4: "ransomware"
+}
+
+# ── RAW COLUMNS (CICFlowMeter output) ─────────────────────────────────────────
 
 RAW_COLUMNS = [
     "Flow ID", "Src IP", "Src Port", "Dst IP", "Dst Port", "Protocol",
@@ -70,7 +93,9 @@ RAW_COLUMNS = [
     "Active Min", "Idle Mean", "Idle Std", "Idle Max", "Idle Min", "Label"
 ]
 
-FEATURE_COLS = [
+# ── WEBSITE MODEL FEATURES ────────────────────────────────────────────────────
+
+WEBSITE_FEATURE_COLS = [
     "Dst Port", "Protocol", "Flow Duration", "Flow Bytes/s", "Flow Packets/s",
     "Fwd Packets/s", "Bwd Packets/s", "Total Fwd Packet", "Total Bwd packets",
     "Total Length of Fwd Packet", "Total Length of Bwd Packet",
@@ -91,21 +116,150 @@ FEATURE_COLS = [
     "Active Min", "Idle Mean", "Idle Std", "Idle Max", "Idle Min"
 ]
 
-print("Loading CNN model...")
-model = load_model("/app/model/cnn_finetuned_v2.keras")
+# ── IOT MODEL FEATURES ────────────────────────────────────────────────────────
 
-print("Loading scaler...")
-with open("/app/model/scaler.pkl", "rb") as f:
-    scaler = pickle.load(f)
+IOT_FEATURE_COLS = [
+    'Protocol', 'Flow Duration', 'Tot Fwd Pkts', 'Tot Bwd Pkts',
+    'TotLen Fwd Pkts', 'TotLen Bwd Pkts', 'Fwd Pkt Len Max',
+    'Fwd Pkt Len Min', 'Fwd Pkt Len Mean', 'Fwd Pkt Len Std',
+    'Bwd Pkt Len Max', 'Bwd Pkt Len Min', 'Bwd Pkt Len Mean',
+    'Bwd Pkt Len Std', 'Flow Byts/s', 'Flow Pkts/s', 'Flow IAT Mean',
+    'Flow IAT Std', 'Flow IAT Max', 'Flow IAT Min', 'Fwd IAT Tot',
+    'Fwd IAT Mean', 'Fwd IAT Std', 'Fwd IAT Max', 'Fwd IAT Min',
+    'Bwd IAT Tot', 'Bwd IAT Mean', 'Bwd IAT Std', 'Bwd IAT Max',
+    'Bwd IAT Min', 'Fwd PSH Flags', 'Bwd PSH Flags', 'Fwd URG Flags',
+    'Bwd URG Flags', 'Fwd Header Len', 'Bwd Header Len', 'Fwd Pkts/s',
+    'Bwd Pkts/s', 'Pkt Len Min', 'Pkt Len Max', 'Pkt Len Mean',
+    'Pkt Len Std', 'Pkt Len Var', 'FIN Flag Cnt', 'SYN Flag Cnt',
+    'RST Flag Cnt', 'PSH Flag Cnt', 'ACK Flag Cnt', 'URG Flag Cnt',
+    'CWE Flag Count', 'ECE Flag Cnt', 'Down/Up Ratio', 'Pkt Size Avg',
+    'Fwd Seg Size Avg', 'Bwd Seg Size Avg', 'Fwd Byts/b Avg',
+    'Fwd Pkts/b Avg', 'Fwd Blk Rate Avg', 'Bwd Byts/b Avg',
+    'Bwd Pkts/b Avg', 'Bwd Blk Rate Avg', 'Subflow Fwd Pkts',
+    'Subflow Fwd Byts', 'Subflow Bwd Pkts', 'Subflow Bwd Byts',
+    'Init Fwd Win Byts', 'Init Bwd Win Byts', 'Fwd Act Data Pkts',
+    'Fwd Seg Size Min', 'Active Mean', 'Active Std', 'Active Max',
+    'Active Min', 'Idle Mean', 'Idle Std', 'Idle Max', 'Idle Min'
+]
 
-print("Loading label mapping...")
-with open("/app/model/label_mapping.json", "r") as f:
-    label_mapping = json.load(f)
+# ── CICFlowMeter → TON-IoT column name mapping ───────────────────────────────
+
+CICFLOW_TO_TONIOT = {
+    "Protocol":                   "Protocol",
+    "Flow Duration":              "Flow Duration",
+    "Total Fwd Packet":           "Tot Fwd Pkts",
+    "Total Bwd packets":          "Tot Bwd Pkts",
+    "Total Length of Fwd Packet": "TotLen Fwd Pkts",
+    "Total Length of Bwd Packet": "TotLen Bwd Pkts",
+    "Fwd Packet Length Max":      "Fwd Pkt Len Max",
+    "Fwd Packet Length Min":      "Fwd Pkt Len Min",
+    "Fwd Packet Length Mean":     "Fwd Pkt Len Mean",
+    "Fwd Packet Length Std":      "Fwd Pkt Len Std",
+    "Bwd Packet Length Max":      "Bwd Pkt Len Max",
+    "Bwd Packet Length Min":      "Bwd Pkt Len Min",
+    "Bwd Packet Length Mean":     "Bwd Pkt Len Mean",
+    "Bwd Packet Length Std":      "Bwd Pkt Len Std",
+    "Flow Bytes/s":               "Flow Byts/s",
+    "Flow Packets/s":             "Flow Pkts/s",
+    "Flow IAT Mean":              "Flow IAT Mean",
+    "Flow IAT Std":               "Flow IAT Std",
+    "Flow IAT Max":               "Flow IAT Max",
+    "Flow IAT Min":               "Flow IAT Min",
+    "Fwd IAT Total":              "Fwd IAT Tot",
+    "Fwd IAT Mean":               "Fwd IAT Mean",
+    "Fwd IAT Std":                "Fwd IAT Std",
+    "Fwd IAT Max":                "Fwd IAT Max",
+    "Fwd IAT Min":                "Fwd IAT Min",
+    "Bwd IAT Total":              "Bwd IAT Tot",
+    "Bwd IAT Mean":               "Bwd IAT Mean",
+    "Bwd IAT Std":                "Bwd IAT Std",
+    "Bwd IAT Max":                "Bwd IAT Max",
+    "Bwd IAT Min":                "Bwd IAT Min",
+    "Fwd PSH Flags":              "Fwd PSH Flags",
+    "Bwd PSH Flags":              "Bwd PSH Flags",
+    "Fwd URG Flags":              "Fwd URG Flags",
+    "Bwd URG Flags":              "Bwd URG Flags",
+    "Fwd Header Length":          "Fwd Header Len",
+    "Bwd Header Length":          "Bwd Header Len",
+    "Fwd Packets/s":              "Fwd Pkts/s",
+    "Bwd Packets/s":              "Bwd Pkts/s",
+    "Packet Length Min":          "Pkt Len Min",
+    "Packet Length Max":          "Pkt Len Max",
+    "Packet Length Mean":         "Pkt Len Mean",
+    "Packet Length Std":          "Pkt Len Std",
+    "Packet Length Variance":     "Pkt Len Var",
+    "FIN Flag Count":             "FIN Flag Cnt",
+    "SYN Flag Count":             "SYN Flag Cnt",
+    "RST Flag Count":             "RST Flag Cnt",
+    "PSH Flag Count":             "PSH Flag Cnt",
+    "ACK Flag Count":             "ACK Flag Cnt",
+    "URG Flag Count":             "URG Flag Cnt",
+    "CWR Flag Count":             "CWE Flag Count",
+    "ECE Flag Count":             "ECE Flag Cnt",
+    "Down/Up Ratio":              "Down/Up Ratio",
+    "Average Packet Size":        "Pkt Size Avg",
+    "Fwd Segment Size Avg":       "Fwd Seg Size Avg",
+    "Bwd Segment Size Avg":       "Bwd Seg Size Avg",
+    "Fwd Bytes/Bulk Avg":         "Fwd Byts/b Avg",
+    "Fwd Packet/Bulk Avg":        "Fwd Pkts/b Avg",
+    "Fwd Bulk Rate Avg":          "Fwd Blk Rate Avg",
+    "Bwd Bytes/Bulk Avg":         "Bwd Byts/b Avg",
+    "Bwd Packet/Bulk Avg":        "Bwd Pkts/b Avg",
+    "Bwd Bulk Rate Avg":          "Bwd Blk Rate Avg",
+    "Subflow Fwd Packets":        "Subflow Fwd Pkts",
+    "Subflow Fwd Bytes":          "Subflow Fwd Byts",
+    "Subflow Bwd Packets":        "Subflow Bwd Pkts",
+    "Subflow Bwd Bytes":          "Subflow Bwd Byts",
+    "FWD Init Win Bytes":         "Init Fwd Win Byts",
+    "Bwd Init Win Bytes":         "Init Bwd Win Byts",
+    "Fwd Act Data Pkts":          "Fwd Act Data Pkts",
+    "Fwd Seg Size Min":           "Fwd Seg Size Min",
+    "Active Mean":                "Active Mean",
+    "Active Std":                 "Active Std",
+    "Active Max":                 "Active Max",
+    "Active Min":                 "Active Min",
+    "Idle Mean":                  "Idle Mean",
+    "Idle Std":                   "Idle Std",
+    "Idle Max":                   "Idle Max",
+    "Idle Min":                   "Idle Min",
+}
+
+# ── LOAD MODELS ───────────────────────────────────────────────────────────────
 
 print(f"Source type: {SOURCE_TYPE}")
+
+if SOURCE_TYPE == "website":
+    print("Loading website CNN model...")
+    website_model = load_model("/app/model/cnn_finetuned_v2.keras")
+
+    print("Loading website scaler...")
+    with open("/app/model/scaler.pkl", "rb") as f:
+        website_scaler = pickle.load(f)
+
+    print("Loading website label mapping...")
+    with open("/app/model/label_mapping.json", "r") as f:
+        website_label_mapping = json.load(f)
+
+    print("Website model loaded!")
+
+else:
+    print("Loading IoT XGBoost model...")
+    with open("/app/model/nexa_xgb_model.pkl", "rb") as f:
+        iot_model = pickle.load(f)
+
+    print("Loading IoT scaler...")
+    with open("/app/model/nexa_scalar.pkl", "rb") as f:
+        iot_scaler = pickle.load(f)
+
+    # Note: label encoder not used — using verified manual mapping instead
+    print("IoT model loaded!")
+    print(f"IoT classes: {list(IOT_LABEL_MAPPING.values())}")
+
 print(f"Backend URL: {BACKEND_URL}")
 print(f"Confidence threshold: {CONFIDENCE_THRESHOLD}")
 print("All artifacts loaded! Ready to consume.")
+
+# ── METRICS ───────────────────────────────────────────────────────────────────
 
 metrics = {
     "flows_processed": 0,
@@ -119,7 +273,6 @@ metrics = {
 
 flow_history = []
 alert_history = []
-
 history_lock = threading.Lock()
 
 def add_to_history(f_count, a_count):
@@ -127,20 +280,19 @@ def add_to_history(f_count, a_count):
     with history_lock:
         flow_history.append((now, f_count))
         alert_history.append((now, a_count))
-        # Keep only last 60 seconds
         cutoff = now - 60
         while flow_history and flow_history[0][0] < cutoff:
             flow_history.pop(0)
         f_total = sum(count for ts, count in flow_history if ts >= cutoff)
         a_total = sum(count for ts, count in alert_history if ts >= cutoff)
-        
         metrics["last_fpm"] = f_total
         metrics["last_apm"] = a_total
         metrics["last_update_ts"] = now
 
 def get_rolling_metrics():
-    # Return the last known rate (permanently sticky)
     return metrics["last_fpm"], metrics["last_apm"]
+
+# ── HELPERS ───────────────────────────────────────────────────────────────────
 
 def get_severity(prediction, confidence):
     if prediction == "Benign":
@@ -153,6 +305,16 @@ def get_severity(prediction, confidence):
         return "MEDIUM"
     else:
         return "LOW"
+
+def get_recommended_action(label, is_alert):
+    if not is_alert:
+        return ""
+    if SOURCE_TYPE == "website":
+        return RECOMMENDED_ACTIONS_WEBSITE.get(label, "Investigate the source IP and review network logs.")
+    else:
+        return RECOMMENDED_ACTIONS_IOT.get(label, "Isolate affected IoT device and review network logs.")
+
+# ── PREPROCESSING ─────────────────────────────────────────────────────────────
 
 def preprocess_batch(batch_str):
     try:
@@ -173,7 +335,6 @@ def preprocess_batch(batch_str):
                             "Flow Packets/s", "Total Fwd Packet",
                             "Total Bwd packets"]].copy()
 
-        # Clean
         df_raw = df_raw[
             (df_raw['Flow Duration'] > 0) &
             (df_raw['Flow Bytes/s'] >= 0) &
@@ -186,49 +347,57 @@ def preprocess_batch(batch_str):
         df_raw['Bwd Init Win Bytes'] = pd.to_numeric(
             df_raw['Bwd Init Win Bytes'], errors='coerce').replace(-1, 0)
 
-        missing = [c for c in FEATURE_COLS if c not in df_raw.columns]
-        if missing:
-            print(f"WARNING: Missing columns: {missing}")
-            return None, None
-
-        df_features = df_raw[FEATURE_COLS].copy()
-
-        for col in FEATURE_COLS:
-            df_features[col] = pd.to_numeric(df_features[col], errors='coerce')
-
-        df_features.replace([np.inf, -np.inf], np.nan, inplace=True)
-        df_features.dropna(inplace=True)
-        metadata = metadata.loc[df_features.index]
-
-        if len(df_features) == 0:
-            return None, None
-
-        return df_features, metadata.reset_index(drop=True)
+        return df_raw, metadata.reset_index(drop=True)
 
     except Exception as e:
         print(f"Preprocessing error: {e}")
         return None, None
 
-def predict_batch(df_features, metadata):
-    df = df_features[FEATURE_COLS]
-    X = scaler.transform(df)
+def extract_website_features(df_raw):
+    missing = [c for c in WEBSITE_FEATURE_COLS if c not in df_raw.columns]
+    if missing:
+        print(f"WARNING: Missing website columns: {missing}")
+        return None
+
+    df_features = df_raw[WEBSITE_FEATURE_COLS].copy()
+    for col in WEBSITE_FEATURE_COLS:
+        df_features[col] = pd.to_numeric(df_features[col], errors='coerce')
+    df_features.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df_features.dropna(inplace=True)
+    return df_features
+
+def extract_iot_features(df_raw):
+    df_renamed = df_raw.rename(columns=CICFLOW_TO_TONIOT)
+
+    missing = [c for c in IOT_FEATURE_COLS if c not in df_renamed.columns]
+    if missing:
+        print(f"WARNING: Missing IoT columns: {missing}")
+        return None
+
+    df_features = df_renamed[IOT_FEATURE_COLS].copy()
+    for col in IOT_FEATURE_COLS:
+        df_features[col] = pd.to_numeric(df_features[col], errors='coerce')
+    df_features.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df_features.dropna(inplace=True)
+    return df_features
+
+# ── PREDICTION ────────────────────────────────────────────────────────────────
+
+def predict_website(df_features, metadata):
+    X = website_scaler.transform(df_features[WEBSITE_FEATURE_COLS])
     X_cnn = X.reshape(X.shape[0], X.shape[1], 1)
-    predictions = model.predict(X_cnn, verbose=0)
+    predictions = website_model.predict(X_cnn, verbose=0)
     class_indices = np.argmax(predictions, axis=1)
     confidences = np.max(predictions, axis=1)
 
     results = []
     now = datetime.now(timezone.utc)
+
     for i, (cls_idx, conf) in enumerate(zip(class_indices, confidences)):
-        label = label_mapping[str(cls_idx)]
-        
-        # Get metadata for this flow
+        label = website_label_mapping[str(cls_idx)]
         meta = metadata.iloc[i] if i < len(metadata) else {}
-        src_ip = meta.get("Src IP")
-        dst_ip = meta.get("Dst IP")
-        src_ip = str(src_ip).strip() if src_ip else None
-        dst_ip = str(dst_ip).strip() if dst_ip else None
-        
+        src_ip = str(meta.get("Src IP", "")).strip() or None
+
         flow_duration = float(meta.get("Flow Duration", 0))
         flow_packets_per_sec = float(meta.get("Flow Packets/s", 0))
 
@@ -243,46 +412,82 @@ def predict_batch(df_features, metadata):
 
         is_alert = label != "Benign" and float(conf) >= CONFIDENCE_THRESHOLD
         severity = get_severity(label, float(conf))
-
-        dst_port = int(meta.get("Dst Port", 0))
-        protocol = int(meta.get("Protocol", 0))
-        flow_bytes_per_sec = float(meta.get("Flow Bytes/s", 0))
-        total_fwd_packets = int(meta.get("Total Fwd Packet", 0))
-        total_bwd_packets = int(meta.get("Total Bwd packets", 0))
-
-        # Parse timestamp
-        raw_ts = str(meta.get("Timestamp", ""))
-        try:
-            ts_dt = pd.to_datetime(raw_ts, utc=True)
-            if (now - ts_dt).total_seconds() > 3600:
-                ts = now.isoformat()
-            else:
-                ts = ts_dt.isoformat()
-        except:
-            ts = now.isoformat()
-
-        result = {
-            "timestamp": ts,
-            "src_ip": src_ip,
-            "dst_ip": dst_ip,
-            "dst_port": dst_port,
-            "protocol": protocol,
-            "prediction": label,
-            "confidence": round(float(conf), 4),
-            "is_alert": is_alert,
-            "severity": severity,
-            "flow_duration": flow_duration,
-            "flow_bytes_per_sec": round(flow_bytes_per_sec, 4),
-            "flow_packets_per_sec": round(flow_packets_per_sec, 4),
-            "total_fwd_packets": total_fwd_packets,
-            "total_bwd_packets": total_bwd_packets,
-            "source_type": SOURCE_TYPE,
-            "registered_id": REGISTERED_ID,
-            "recommended_action": RECOMMENDED_ACTIONS.get(label, "") if is_alert else ""
-        }
-        results.append(result)
+        results.append(_build_result(label, conf, is_alert, severity, meta, now))
 
     return results
+
+def predict_iot(df_features, metadata):
+    X = iot_scaler.transform(df_features[IOT_FEATURE_COLS])
+    predictions = iot_model.predict(X)
+
+    try:
+        proba = iot_model.predict_proba(X)
+        confidences = np.max(proba, axis=1)
+    except:
+        confidences = np.ones(len(predictions))
+
+    # Use verified manual mapping instead of broken encoder
+    labels = [IOT_LABEL_MAPPING.get(int(p), "Unknown") for p in predictions]
+
+    results = []
+    now = datetime.now(timezone.utc)
+
+    for i, (label, conf) in enumerate(zip(labels, confidences)):
+        meta = metadata.iloc[i] if i < len(metadata) else {}
+        src_ip = str(meta.get("Src IP", "")).strip() or None
+
+        if src_ip in WHITELIST_IPS:
+            label = "Benign"
+            conf = 1.0
+
+        is_alert = label != "Benign" and float(conf) >= CONFIDENCE_THRESHOLD
+        severity = get_severity(label, float(conf))
+        results.append(_build_result(label, conf, is_alert, severity, meta, now))
+
+    return results
+
+def _build_result(label, conf, is_alert, severity, meta, now):
+    src_ip = str(meta.get("Src IP", "")).strip() or None
+    dst_ip = str(meta.get("Dst IP", "")).strip() or None
+    dst_port = int(meta.get("Dst Port", 0))
+    protocol = int(meta.get("Protocol", 0))
+    flow_duration = float(meta.get("Flow Duration", 0))
+    flow_bytes_per_sec = float(meta.get("Flow Bytes/s", 0))
+    flow_packets_per_sec = float(meta.get("Flow Packets/s", 0))
+    total_fwd_packets = int(meta.get("Total Fwd Packet", 0))
+    total_bwd_packets = int(meta.get("Total Bwd packets", 0))
+
+    raw_ts = str(meta.get("Timestamp", ""))
+    try:
+        ts_dt = pd.to_datetime(raw_ts, utc=True)
+        if (now - ts_dt).total_seconds() > 3600:
+            ts = now.isoformat()
+        else:
+            ts = ts_dt.isoformat()
+    except:
+        ts = now.isoformat()
+
+    return {
+        "timestamp": ts,
+        "src_ip": src_ip,
+        "dst_ip": dst_ip,
+        "dst_port": dst_port,
+        "protocol": protocol,
+        "prediction": label,
+        "confidence": round(float(conf), 4),
+        "is_alert": is_alert,
+        "severity": severity,
+        "flow_duration": flow_duration,
+        "flow_bytes_per_sec": round(flow_bytes_per_sec, 4),
+        "flow_packets_per_sec": round(flow_packets_per_sec, 4),
+        "total_fwd_packets": total_fwd_packets,
+        "total_bwd_packets": total_bwd_packets,
+        "source_type": SOURCE_TYPE,
+        "registered_id": REGISTERED_ID,
+        "recommended_action": get_recommended_action(label, is_alert)
+    }
+
+# ── BACKEND ───────────────────────────────────────────────────────────────────
 
 def send_to_backend(results):
     try:
@@ -291,20 +496,19 @@ def send_to_backend(results):
             json={"flows": results},
             timeout=10
         )
-        if response.status_code == 200:
-            pass  # success
-        else:
+        if response.status_code != 200:
             print(f"Backend error: {response.status_code} — {response.text[:100]}")
     except requests.exceptions.ConnectionError:
         print("Backend not reachable — skipping this batch")
     except Exception as e:
         print(f"Send error: {e}")
 
+# ── HEALTH REPORTER ───────────────────────────────────────────────────────────
+
 def report_health():
     while True:
         try:
             fpm, apm = get_rolling_metrics()
-            
             health_data = {
                 "component": "ml-consumer",
                 "status": True,
@@ -327,11 +531,13 @@ def report_health():
 
 health_thread = threading.Thread(target=report_health, daemon=True)
 health_thread.start()
+
+# ── KAFKA CONSUMER LOOP ───────────────────────────────────────────────────────
+
 print(f"Connecting to Kafka at {KAFKA_BROKER}...")
 
 try:
     dynamic_group_id = f"ml-consumer-group-{int(time.time())}"
-    
     consumer = KafkaConsumer(
         TOPIC,
         bootstrap_servers=KAFKA_BROKER,
@@ -348,17 +554,29 @@ except Exception as e:
 for message in consumer:
     batch_str = message.value
 
-    df_features, metadata = preprocess_batch(batch_str)
-    if df_features is None:
+    df_raw, metadata = preprocess_batch(batch_str)
+    if df_raw is None:
         print("Skipping batch — preprocessing failed")
         continue
 
-    results = predict_batch(df_features, metadata)
+    if SOURCE_TYPE == "website":
+        df_features = extract_website_features(df_raw)
+        if df_features is None:
+            print("Skipping batch — website feature extraction failed")
+            continue
+        metadata = metadata.loc[df_features.index].reset_index(drop=True)
+        results = predict_website(df_features, metadata)
+    else:
+        df_features = extract_iot_features(df_raw)
+        if df_features is None:
+            print("Skipping batch — IoT feature extraction failed")
+            continue
+        metadata = metadata.loc[df_features.index].reset_index(drop=True)
+        results = predict_iot(df_features, metadata)
 
-    # Update metrics
     num_results = len(results)
     num_alerts = sum(1 for r in results if r["is_alert"])
-    
+
     metrics["flows_processed"] += num_results
     metrics["alerts_triggered"] += num_alerts
     add_to_history(num_results, num_alerts)
@@ -366,7 +584,7 @@ for message in consumer:
 
     alerts = [r for r in results if r["is_alert"]]
     benign = [r for r in results if not r["is_alert"]]
-    print(f"\n[BATCH] Flows: {len(results)} | Benign: {len(benign)} | Alerts: {len(alerts)}")
+    print(f"\n[BATCH] Flows: {len(results)} | Benign: {len(benign)} | Alerts: {len(alerts)} | Model: {SOURCE_TYPE}")
 
     if alerts:
         print("ALERTS:")
@@ -378,5 +596,4 @@ for message in consumer:
     else:
         print("All flows benign")
 
-    # Send to backend
     send_to_backend(results)

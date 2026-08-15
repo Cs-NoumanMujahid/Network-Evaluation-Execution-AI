@@ -1,29 +1,44 @@
+// NEXA brand palette — driven from CSS custom properties so themes stay in sync.
 export const cyberPalette = {
-  blue: "var(--color-cyber-blue)", // Flows
-  teal: "var(--color-cyber-teal)", // Normal / Benign
-  amber: "var(--color-cyber-amber)", // Medium
-  orange: "var(--color-cyber-orange)", // High
-  red: "var(--color-cyber-red)", // Critical / DoS
-  purple: "var(--color-cyber-purple)", // Unknown
+  blue:   "var(--color-status-info)",
+  teal:   "var(--color-status-low)",
+  amber:  "var(--color-status-medium)",
+  orange: "var(--color-status-high)",
+  red:    "var(--color-status-critical)",
+  purple: "var(--color-cyber-purple)",
 };
 
-// Map Severities
+// Categorical palette for charts where bars/slices need distinct hues
+// (independent of semantic meaning). Cycles via getChartColor(index).
+export const chartPalette: string[] = [
+  "var(--chart-cat-1)", // blue
+  "var(--chart-cat-2)", // teal
+  "var(--chart-cat-3)", // amber
+  "var(--chart-cat-4)", // red
+  "var(--chart-cat-5)", // violet
+  "var(--chart-cat-6)", // emerald
+  "var(--chart-cat-7)", // pink
+  "var(--chart-cat-8)", // sky
+];
+
+export const getChartColor = (index: number): string =>
+  chartPalette[((index % chartPalette.length) + chartPalette.length) % chartPalette.length];
+
 export const severityColors: Record<string, string> = {
   CRITICAL: cyberPalette.red,
-  HIGH: cyberPalette.orange,
-  MEDIUM: cyberPalette.amber,
-  LOW: cyberPalette.teal,
-  NORMAL: cyberPalette.blue,
+  HIGH:     cyberPalette.orange,
+  MEDIUM:   cyberPalette.amber,
+  LOW:      cyberPalette.teal,
+  NORMAL:   cyberPalette.blue,
 };
 
-// Map Specific Attack Types
 export const getAttackColor = (attackType: string): string => {
   const type = attackType.toLowerCase();
   if (type.includes("benign") || type.includes("normal")) return cyberPalette.teal;
-  if (type.includes("dos") || type.includes("ddos")) return cyberPalette.red;
-  if (type.includes("bruteforce")) return cyberPalette.orange;
+  if (type.includes("dos") || type.includes("ddos"))      return cyberPalette.red;
+  if (type.includes("bruteforce"))                        return cyberPalette.orange;
   if (type.includes("portscan") || type.includes("scan")) return cyberPalette.amber;
   if (type.includes("sqli") || type.includes("injection")) return cyberPalette.orange;
-  if (type.includes("xss")) return cyberPalette.amber;
-  return cyberPalette.purple; // Unknown fallback
+  if (type.includes("xss"))                                return cyberPalette.amber;
+  return cyberPalette.purple;
 };

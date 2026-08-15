@@ -8,6 +8,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
+import { ShieldAlert } from "lucide-react";
 
 import {
   Table,
@@ -17,11 +18,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTablePagination } from "@/components/table/DataTablePagination";
-
 import {
   Dialog,
   DialogContent,
@@ -57,7 +56,14 @@ interface RecentAlertsTableProps {
   setPageSize: (s: number) => void;
 }
 
-export default function RecentAlertsTable({ data, loading, page, setPage, pageSize, setPageSize }: RecentAlertsTableProps) {
+export default function RecentAlertsTable({
+  data,
+  loading,
+  page,
+  setPage,
+  pageSize,
+  setPageSize,
+}: RecentAlertsTableProps) {
   const [selectedAction, setSelectedAction] = useState<string | null>(null);
 
   const columns: ColumnDef<AlertData>[] = [
@@ -67,7 +73,7 @@ export default function RecentAlertsTable({ data, loading, page, setPage, pageSi
       cell: ({ row }) => {
         try {
           return (
-            <span className="text-[10px] font-medium text-muted-foreground uppercase">
+            <span className="text-xs text-muted-foreground">
               {formatDistanceToNow(new Date(row.original.timestamp), { addSuffix: true })}
             </span>
           );
@@ -78,67 +84,81 @@ export default function RecentAlertsTable({ data, loading, page, setPage, pageSi
     },
     {
       accessorKey: "prediction",
-      header: "Attack Type",
+      header: "Attack type",
       cell: ({ row }) => {
         const color = getAttackColor(row.original.prediction);
         return (
           <div className="flex items-center gap-2">
-            <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
-            <span className="font-bold text-sm tracking-tight">{row.original.prediction}</span>
+            <span
+              className="h-2 w-2 rounded-full shrink-0"
+              style={{ backgroundColor: color }}
+              aria-hidden
+            />
+            <span className="text-sm font-medium text-foreground">{row.original.prediction}</span>
           </div>
         );
-      }
+      },
     },
     {
       accessorKey: "severity",
       header: "Severity",
       cell: ({ row }) => {
         const severity = row.original.severity;
-        const color = severityColors[severity] || "var(--color-muted-foreground)";
+        const color = severityColors[severity] || "var(--muted-foreground)";
         return (
-          <Badge
-            variant="outline"
-            className="border-none font-black text-[9px] px-2 py-0.5 uppercase tracking-tighter"
-            style={{ backgroundColor: `${color}20`, color: color }}
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium"
+            style={{
+              borderColor: color,
+              color: color,
+            }}
           >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden />
             {severity}
-          </Badge>
+          </span>
         );
       },
     },
     {
       accessorKey: "src_ip",
-      header: "Source IP",
-      cell: ({ row }) => <span className="font-mono text-xs font-semibold">{row.original.src_ip}</span>
+      header: "Source",
+      cell: ({ row }) => (
+        <span className="font-mono text-xs text-foreground">{row.original.src_ip}</span>
+      ),
     },
     {
       accessorKey: "dst_ip",
-      header: "Dest IP",
-      cell: ({ row }) => <span className="font-mono text-xs">{row.original.dst_ip}:{row.original.dst_port}</span>
+      header: "Destination",
+      cell: ({ row }) => (
+        <span className="font-mono text-xs text-muted-foreground">
+          {row.original.dst_ip}
+          <span className="text-muted-foreground/60">:{row.original.dst_port}</span>
+        </span>
+      ),
     },
     {
       accessorKey: "confidence",
       header: "Confidence",
       cell: ({ row }) => (
-        <span className="tabular-nums font-bold text-sm">
+        <span className="tabular-nums text-sm font-medium text-foreground">
           {((row.original.confidence || 0) * 100).toFixed(1)}%
         </span>
       ),
     },
     {
       id: "actions",
-      header: "Actions",
+      header: "",
       cell: ({ row }) => {
         const action = row.original.recommended_action;
         return (
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
             disabled={!action}
             onClick={() => setSelectedAction(action || null)}
-            className="h-7 text-[10px] font-bold uppercase tracking-widest hover:bg-cyber-blue/10 hover:text-cyber-blue transition-all active:scale-95 border border-border/50"
+            className="h-7 px-2.5 text-xs font-medium"
           >
-            View Action
+            View
           </Button>
         );
       },
@@ -171,29 +191,35 @@ export default function RecentAlertsTable({ data, loading, page, setPage, pageSi
   });
 
   if (loading && !data) {
-    return <Skeleton className="h-96 w-full rounded-xl" />;
+    return <Skeleton className="h-96 w-full rounded-md" />;
   }
 
   return (
-    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-6 duration-700">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-medium flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-cyber-red animate-pulse-slow" />
-          Recent Threats
-        </h2>
+    <div className="space-y-4">
+      <div className="flex items-baseline justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">Recent alerts</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Latest detections across all monitored sources.
+          </p>
+        </div>
         {data && (
-          <span className="text-xs text-muted-foreground font-medium uppercase tracking-widest">
-            Total Events: <span className="text-foreground font-bold tabular-nums">{data.count}</span>
+          <span className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground tabular-nums">{data.count.toLocaleString()}</span> total
           </span>
         )}
       </div>
-      <div className="rounded-xl border bg-card/50 backdrop-blur-sm overflow-hidden transition-all duration-500 shadow-sm border-border/40">
+
+      <div className="rounded-md border border-border bg-card overflow-hidden">
         <Table>
-          <TableHeader className="bg-muted/50">
+          <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="hover:bg-transparent border-none">
+              <TableRow key={headerGroup.id} className="hover:bg-transparent border-border">
                 {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id} className="text-[10px] font-black uppercase tracking-tighter text-muted-foreground py-4">
+                  <TableHead
+                    key={header.id}
+                    className="h-10 text-xs font-medium text-muted-foreground bg-muted/40"
+                  >
                     {header.isPlaceholder
                       ? null
                       : flexRender(header.column.columnDef.header, header.getContext())}
@@ -207,7 +233,7 @@ export default function RecentAlertsTable({ data, loading, page, setPage, pageSi
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
-                  className="hover:bg-accent/50 transition-colors border-border/20"
+                  className="border-border hover:bg-accent/50"
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id} className="py-3">
@@ -218,8 +244,11 @@ export default function RecentAlertsTable({ data, loading, page, setPage, pageSi
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground font-medium">
-                  Scanning for network anomalies...
+                <TableCell
+                  colSpan={columns.length}
+                  className="h-24 text-center text-sm text-muted-foreground"
+                >
+                  No alerts yet — scanning for anomalies.
                 </TableCell>
               </TableRow>
             )}
@@ -227,18 +256,16 @@ export default function RecentAlertsTable({ data, loading, page, setPage, pageSi
         </Table>
       </div>
 
-      {data && data.results.length > 0 && (
-        <DataTablePagination table={table} />
-      )}
+      {data && data.results.length > 0 && <DataTablePagination table={table} />}
 
       <Dialog open={!!selectedAction} onOpenChange={(open) => !open && setSelectedAction(null)}>
-        <DialogContent className="bg-card/95 backdrop-blur-xl border-cyber-blue/20">
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
-              <ShieldAlert className="h-5 w-5 text-cyber-blue" />
-              Strategic Response
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+              <ShieldAlert className="h-4 w-4 text-status-info" />
+              Recommended action
             </DialogTitle>
-            <DialogDescription className="pt-6 text-sm text-foreground leading-relaxed border-t border-border/50 mt-4">
+            <DialogDescription className="pt-3 text-sm leading-relaxed text-foreground border-t border-border mt-3">
               {selectedAction}
             </DialogDescription>
           </DialogHeader>
@@ -247,5 +274,3 @@ export default function RecentAlertsTable({ data, loading, page, setPage, pageSi
     </div>
   );
 }
-
-import { ShieldAlert } from "lucide-react";

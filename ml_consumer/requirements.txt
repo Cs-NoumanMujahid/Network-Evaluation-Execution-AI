@@ -1,5 +1,7 @@
-kafka-python
+kafka-python-ng
 tensorflow==2.16.1
 numpy
 pandas
 scikit-learn
+xgboost
+joblib

@@ -3,11 +3,13 @@ from . import views
 
 urlpatterns = [
     path('flows/ingest/', views.FlowIngestView.as_view()),
+    path('scan/reset/', views.ScanResetView.as_view()),
     path('dashboard/stats/', views.DashboardStatsView.as_view()),
     path('dashboard/attack-types/', views.AttackTypesView.as_view()),
     path('dashboard/severity/', views.SeverityDistributionView.as_view()),
     path('dashboard/traffic-volume/', views.TrafficVolumeView.as_view()),
     path('dashboard/top-attackers/', views.TopAttackersView.as_view()),
+    path('dashboard/top-targets/', views.TopTargetsView.as_view()),
     path('dashboard/pipeline-status/', views.PipelineStatusView.as_view()),
     path('alerts/', views.AlertListView.as_view()),
     path('sites/', views.SiteListCreateView.as_view()),

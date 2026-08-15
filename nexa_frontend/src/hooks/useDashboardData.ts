@@ -38,6 +38,18 @@ interface TopAttackersData {
   attackers: TopAttacker[];
 }
 
+interface TopTarget {
+  dst_ip: string;
+  count: number;
+  ports: number[];
+  attack_types: string[];
+  last_seen: string | null;
+}
+
+interface TopTargetsData {
+  targets: TopTarget[];
+}
+
 interface PipelineServiceStatus {
   status: boolean;
   label?: string;
@@ -104,6 +116,31 @@ const MOCK_DATA = {
       { src_ip: "172.16.0.50", count: 20, attack_types: ["XSS"] },
     ],
   },
+  topTargets: {
+    targets: [
+      {
+        dst_ip: "172.20.0.10",
+        count: 380,
+        ports: [80, 443, 22],
+        attack_types: ["PortScan", "SQL-Injection"],
+        last_seen: new Date().toISOString(),
+      },
+      {
+        dst_ip: "10.0.0.5",
+        count: 120,
+        ports: [443, 8080],
+        attack_types: ["BruteForce-Web"],
+        last_seen: new Date(Date.now() - 60000).toISOString(),
+      },
+      {
+        dst_ip: "192.168.1.50",
+        count: 75,
+        ports: [80, 23],
+        attack_types: ["DoS"],
+        last_seen: new Date(Date.now() - 300000).toISOString(),
+      },
+    ],
+  },
   pipelineStatus: {
     kafka: { status: true, label: "Running" },
     ml_consumer: { status: true, label: "Running", last_seen: new Date().toISOString() },
@@ -168,11 +205,12 @@ export const useDashboardData = () => {
   const [severity, setSeverity] = useState<SeverityData | null>(null);
   const [trafficVolume, setTrafficVolume] = useState<TrafficVolumeData | null>(null);
   const [topAttackers, setTopAttackers] = useState<TopAttackersData | null>(null);
+  const [topTargets, setTopTargets] = useState<TopTargetsData | null>(null);
   const [pipelineStatus, setPipelineStatus] = useState<PipelineStatusData | null>(null);
   const [alerts, setAlerts] = useState<AlertsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(10);
 
   const applyMockData = useCallback(() => {
     setStats(MOCK_DATA.stats);
@@ -180,6 +218,7 @@ export const useDashboardData = () => {
     setSeverity(MOCK_DATA.severity);
     setTrafficVolume(MOCK_DATA.trafficVolume);
     setTopAttackers(MOCK_DATA.topAttackers);
+    setTopTargets(MOCK_DATA.topTargets);
     setPipelineStatus(MOCK_DATA.pipelineStatus);
     setAlerts(MOCK_DATA.alerts);
   }, []);
@@ -193,6 +232,7 @@ export const useDashboardData = () => {
         severityRes,
         trafficVolumeRes,
         topAttackersRes,
+        topTargetsRes,
         pipelineStatusRes,
         alertsRes,
       ] = await Promise.all([
@@ -201,11 +241,12 @@ export const useDashboardData = () => {
         fetch(`${API_BASE_URL}/dashboard/severity/?source_type=${sourceType}`).catch(() => null),
         fetch(`${API_BASE_URL}/dashboard/traffic-volume/?source_type=${sourceType}&minutes=60`).catch(() => null),
         fetch(`${API_BASE_URL}/dashboard/top-attackers/?source_type=${sourceType}&limit=5`).catch(() => null),
+        fetch(`${API_BASE_URL}/dashboard/top-targets/?source_type=${sourceType}&limit=5`).catch(() => null),
         fetch(`${API_BASE_URL}/dashboard/pipeline-status/`).catch(() => null),
         fetch(`${API_BASE_URL}/alerts/?source_type=${sourceType}&page=${page}&limit=${pageSize}`).catch(() => null),
       ]);
 
-      const allFailed = ![statsRes, attackTypesRes, severityRes, trafficVolumeRes, topAttackersRes, pipelineStatusRes, alertsRes].some((res) => res && res.ok);
+      const allFailed = ![statsRes, attackTypesRes, severityRes, trafficVolumeRes, topAttackersRes, topTargetsRes, pipelineStatusRes, alertsRes].some((res) => res && res.ok);
 
       if (allFailed) {
         applyMockData();
@@ -215,6 +256,7 @@ export const useDashboardData = () => {
         if (severityRes?.ok) setSeverity(await severityRes.json());
         if (trafficVolumeRes?.ok) setTrafficVolume(await trafficVolumeRes.json());
         if (topAttackersRes?.ok) setTopAttackers(await topAttackersRes.json());
+        if (topTargetsRes?.ok) setTopTargets(await topTargetsRes.json());
         if (pipelineStatusRes?.ok) setPipelineStatus(await pipelineStatusRes.json());
         if (alertsRes?.ok) setAlerts(await alertsRes.json());
       }
@@ -287,6 +329,7 @@ export const useDashboardData = () => {
     severity,
     trafficVolume,
     topAttackers,
+    topTargets,
     pipelineStatus,
     alerts,
     loading,

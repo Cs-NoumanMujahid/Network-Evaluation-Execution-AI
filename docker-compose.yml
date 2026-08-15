@@ -15,11 +15,11 @@ services:
         ipv4_address: 172.20.0.10
 
   db:
-    image: mysql:5.7
+    image: mariadb:10.11
     container_name: dvwa-db
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: dvwa
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: dvwa
     networks:
       nexa-net:
         ipv4_address: 172.20.0.11
@@ -186,6 +186,29 @@ services:
       CONFIDENCE_THRESHOLD: "0.80"
       BACKEND_URL: "http://host.docker.internal:8000"
       SOURCE_TYPE: "website"
+      REGISTERED_ID: "1"
+      HEALTH_INTERVAL: "60"
+    volumes:
+      - ./ml_consumer/model:/app/model:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - nexa-net
+    restart: unless-stopped
+
+  # ── IoT ML Consumer ──────────────────────────────────────────────────────────
+  # Handles home_network traffic using XGBoost TON-IoT model
+  # Activated when Raspberry Pi / Jetson sends flows to flows_iot topic
+  ml-consumer-iot:
+    build: ./ml_consumer
+    container_name: ml-consumer-iot
+    environment:
+      KAFKA_BROKER: kafka:29092
+      KAFKA_TOPIC: flows_iot
+      CONFIDENCE_THRESHOLD: "0.80"
+      BACKEND_URL: "http://host.docker.internal:8000"
+      SOURCE_TYPE: "home_network"
       REGISTERED_ID: "1"
       HEALTH_INTERVAL: "60"
     volumes:

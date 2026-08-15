@@ -24,7 +24,10 @@ CREATE TABLE IF NOT EXISTS security_log (
 ) ENGINE=InnoDB;
 
 -- Add role column to users table if it doesn't exist
-ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user';
+-- Note: MySQL 8.0 doesn't support IF NOT EXISTS in ALTER TABLE easily.
+-- Since the main setup now includes this column, this might be redundant,
+-- but we remove the problematic syntax.
+ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'user';
 
 -- Update admin user to have admin role
 UPDATE users SET role = 'admin' WHERE user = 'admin';

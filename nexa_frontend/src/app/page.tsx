@@ -1,12 +1,14 @@
 "use client";
 
 import { useDashboardData } from "@/hooks/useDashboardData";
-import StatCards from "@/components/dashboard/StatCards";
-import AttackTypesChart from "@/components/dashboard/AttackTypesChart";
+import OverviewCard from "@/components/dashboard/OverviewCard";
+import WeeklyTrafficCard from "@/components/dashboard/WeeklyTrafficCard";
+import DetectionScoreCard from "@/components/dashboard/DetectionScoreCard";
+import PipelineGoalsCard from "@/components/dashboard/PipelineGoalsCard";
+import ActiveAlertsCard from "@/components/dashboard/ActiveAlertsCard";
+import RecentIncidentsRow from "@/components/dashboard/RecentIncidentsRow";
 import SeverityChart from "@/components/dashboard/SeverityChart";
-import TrafficVolumeChart from "@/components/dashboard/TrafficVolumeChart";
-import TopAttackersChart from "@/components/dashboard/TopAttackersChart";
-import PipelineStatus from "@/components/dashboard/PipelineStatus";
+import AttackTypesChart from "@/components/dashboard/AttackTypesChart";
 import RecentAlertsTable from "@/components/dashboard/RecentAlertsTable";
 import { Card } from "@/components/ui/card";
 
@@ -27,32 +29,44 @@ const DashboardPage = () => {
   } = useDashboardData();
 
   return (
-    <div className="flex flex-col gap-4 pb-8">
-      <StatCards stats={stats} loading={loading} />
+    <div className="flex flex-col gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="lg:col-span-4">
+          <OverviewCard stats={stats} loading={loading} />
+        </div>
+        <div className="lg:col-span-5">
+          <WeeklyTrafficCard data={trafficVolume} loading={loading} />
+        </div>
+        <div className="lg:col-span-3">
+          <DetectionScoreCard stats={stats} attackTypes={attackTypes} loading={loading} />
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-4 animate-in fade-in zoom-in-95 slide-in-from-bottom-8 duration-1000 delay-300 fill-mode-both">
-          <AttackTypesChart data={attackTypes} loading={loading} />
-        </Card>
-        <Card className="p-4 animate-in fade-in zoom-in-95 slide-in-from-bottom-8 duration-1000 delay-450 fill-mode-both">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="lg:col-span-4">
+          <PipelineGoalsCard data={pipelineStatus} loading={loading} />
+        </div>
+        <div className="lg:col-span-8">
+          <ActiveAlertsCard data={alerts} loading={loading} />
+        </div>
+      </div>
+
+      <RecentIncidentsRow
+        data={topAttackers}
+        totalAlerts={stats?.total_alerts || 0}
+        loading={loading}
+      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <Card className="lg:col-span-7 p-6 shadow-none border-border bg-card">
           <SeverityChart data={severity} loading={loading} />
         </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-4 animate-in fade-in zoom-in-95 slide-in-from-bottom-8 duration-1000 delay-600 fill-mode-both">
-          <TrafficVolumeChart data={trafficVolume} loading={loading} />
-        </Card>
-        <Card className="p-4 animate-in fade-in zoom-in-95 slide-in-from-bottom-8 duration-1000 delay-750 fill-mode-both">
-          <TopAttackersChart data={topAttackers} loading={loading} />
+        <Card className="lg:col-span-5 p-6 shadow-none border-border bg-card">
+          <AttackTypesChart data={attackTypes} loading={loading} />
         </Card>
       </div>
 
-      <Card className="p-4 animate-in fade-in zoom-in-95 slide-in-from-bottom-8 duration-1000 delay-900 fill-mode-both">
-        <PipelineStatus data={pipelineStatus} loading={loading} />
-      </Card>
-
-      <div className="animate-in fade-in zoom-in-95 slide-in-from-bottom-8 duration-1000 delay-1000 fill-mode-both">
+      <Card className="p-6 shadow-none border-border bg-card">
         <RecentAlertsTable
           data={alerts}
           loading={loading}
@@ -61,7 +75,7 @@ const DashboardPage = () => {
           pageSize={pageSize}
           setPageSize={setPageSize}
         />
-      </div>
+      </Card>
     </div>
   );
 };

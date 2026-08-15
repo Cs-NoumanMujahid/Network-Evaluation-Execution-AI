@@ -1,8 +1,7 @@
 "use client";
 
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, XCircle, Activity } from "lucide-react";
+import { Activity, AlertTriangle } from "lucide-react";
 
 interface PipelineStatusProps {
   data: {
@@ -31,37 +30,49 @@ export default function PipelineStatus({ data, loading }: PipelineStatusProps) {
   ];
 
   return (
-    <div className="flex flex-col sm:flex-row gap-6 items-center justify-between">
-      <div className="flex flex-wrap gap-4 items-center">
-        <span className="font-medium text-sm text-muted-foreground mr-2 uppercase tracking-tighter">System Pipeline:</span>
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="mr-1 text-xs font-medium text-muted-foreground">Pipeline</span>
         {services.map((service) => (
-          <Badge
+          <span
             key={service.key}
-            variant={service.status ? "default" : "destructive"}
-            className={`flex items-center gap-1.5 px-3 py-1 border-none ${service.status ? "bg-cyber-teal/20 text-cyber-teal animate-pulse-slow" : "bg-cyber-red/20 text-cyber-red"}`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-foreground"
           >
-            {service.status ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
-            <span className="text-[10px] font-bold uppercase tracking-wide">{service.name}</span>
-          </Badge>
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                service.status
+                  ? "bg-status-low"
+                  : "bg-status-critical"
+              }`}
+              aria-hidden
+            />
+            {service.name}
+          </span>
         ))}
       </div>
 
-      <div className="flex gap-6">
-        <div className="flex items-center gap-2">
-          <Activity className="h-4 w-4 text-cyber-blue" />
-          <div className="text-sm">
-            <span className="font-bold tabular-nums">{data.flows_per_minute || 0}</span>
-            <span className="text-[10px] text-muted-foreground ml-1 uppercase font-semibold">flows/min</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Activity className="h-4 w-4 text-cyber-red" />
-          <div className="text-sm">
-            <span className="font-bold tabular-nums">{data.alerts_per_minute || 0}</span>
-            <span className="text-[10px] text-muted-foreground ml-1 uppercase font-semibold">alerts/min</span>
-          </div>
-        </div>
+      <div className="flex items-center gap-6">
+        <Metric
+          icon={<Activity className="h-3.5 w-3.5 text-status-info" />}
+          value={data.flows_per_minute || 0}
+          label="flows / min"
+        />
+        <Metric
+          icon={<AlertTriangle className="h-3.5 w-3.5 text-status-critical" />}
+          value={data.alerts_per_minute || 0}
+          label="alerts / min"
+        />
       </div>
+    </div>
+  );
+}
+
+function Metric({ icon, value, label }: { icon: React.ReactNode; value: number; label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      {icon}
+      <span className="text-sm font-semibold tabular-nums text-foreground">{value}</span>
+      <span className="text-xs text-muted-foreground">{label}</span>
     </div>
   );
 }

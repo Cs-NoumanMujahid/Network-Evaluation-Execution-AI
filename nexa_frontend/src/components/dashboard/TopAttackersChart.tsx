@@ -7,7 +7,7 @@ import {
   ChartTooltip,
 } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getAttackColor } from "@/lib/theme";
+import { getChartColor } from "@/lib/theme";
 
 interface TopAttackersChartProps {
   data: {
@@ -24,17 +24,17 @@ const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="bg-card/95 backdrop-blur-md border border-border/50 rounded-lg p-3 shadow-xl">
-        <p className="font-bold text-sm mb-1 text-foreground">{data.src_ip}</p>
-        <div className="flex items-center gap-2 mb-2">
-           <span className="text-xs text-muted-foreground uppercase tracking-wider">Alerts:</span>
-           <span className="text-xs font-bold text-cyber-red">{data.count}</span>
+      <div className="bg-popover border border-border rounded-md p-3 shadow-md">
+        <p className="font-mono text-xs font-semibold text-foreground mb-2">{data.src_ip}</p>
+        <div className="flex items-center justify-between gap-4 mb-2">
+          <span className="text-xs text-muted-foreground">Alerts</span>
+          <span className="text-xs font-semibold text-foreground tabular-nums">{data.count}</span>
         </div>
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 max-w-[200px]">
           {data.attack_types.map((type: string, i: number) => (
-            <span 
-              key={`${type}-${i}`} 
-              className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted border border-border/50 text-muted-foreground font-semibold"
+            <span
+              key={`${type}-${i}`}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium"
             >
               {type}
             </span>
@@ -50,7 +50,7 @@ export default function TopAttackersChart({ data, loading }: TopAttackersChartPr
   if (loading && !data) {
     return (
       <div className="flex flex-col gap-4">
-        <Skeleton className="h-6 w-32" />
+        <Skeleton className="h-5 w-32" />
         <Skeleton className="h-[250px] w-full" />
       </div>
     );
@@ -63,28 +63,40 @@ export default function TopAttackersChart({ data, loading }: TopAttackersChartPr
   };
 
   return (
-    <div className="relative">
-      <h2 className="text-lg font-medium mb-6">Top Attackers</h2>
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <h2 className="text-sm font-semibold text-foreground">Top attackers</h2>
+        <span className="text-xs text-muted-foreground">By alert count</span>
+      </div>
+      <p className="text-xs text-muted-foreground mb-6">Source IPs ranked by triggered alerts.</p>
 
-      <ChartContainer config={chartConfig} className="min-h-[250px] w-full">
-        <BarChart accessibilityLayer data={data.attackers} layout="vertical" margin={{ left: 24 }}>
-          <CartesianGrid horizontal={false} strokeOpacity={0.1} />
-          <XAxis type="number" tickLine={false} axisLine={false} tickMargin={8} className="text-[10px] font-medium" />
+      <ChartContainer config={chartConfig} className="min-h-[260px] w-full">
+        <BarChart accessibilityLayer data={data.attackers} layout="vertical" margin={{ top: 4, left: 8, right: 8 }}>
+          <CartesianGrid horizontal={false} stroke="var(--border)" strokeDasharray="3 3" />
+          <XAxis
+            type="number"
+            tickLine={false}
+            axisLine={false}
+            tickMargin={8}
+            tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+          />
           <YAxis
             dataKey="src_ip"
             type="category"
             tickLine={false}
             axisLine={false}
             tickMargin={8}
-            width={100}
-            className="text-[10px] font-bold"
+            width={110}
+            tick={{ fontSize: 11, fill: "var(--muted-foreground)", fontFamily: "var(--font-mono)" }}
           />
-          <ChartTooltip cursor={{ fill: 'rgba(255,255,255,0.03)' }} content={<CustomTooltip />} />
-          <Bar dataKey="count" radius={[0, 4, 4, 0]} isAnimationActive={true}>
-            {data.attackers.map((entry, index) => {
-              const color = getAttackColor(entry.attack_types[0] || "unknown");
-              return <Cell key={`cell-${index}`} fill={color} fillOpacity={0.8} />;
-            })}
+          <ChartTooltip cursor={{ fill: "var(--accent)" }} content={<CustomTooltip />} />
+          <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={20} isAnimationActive>
+            {data.attackers.map((_entry, index) => (
+              <Cell
+                key={`cell-${index}`}
+                fill={getChartColor(index)}
+              />
+            ))}
           </Bar>
         </BarChart>
       </ChartContainer>
