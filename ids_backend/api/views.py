@@ -49,6 +49,14 @@ def _send_group(group, event_type, payload):
 class ScanResetView(APIView):
     def post(self, request):
         try:
+            stop_attack_process()
+            # Restart ML consumer containers to reset their offsets to 'latest' and discard stale queues
+            subprocess.run(['docker', 'restart', 'ml-consumer'], capture_output=True, timeout=5)
+            subprocess.run(['docker', 'restart', 'ml-consumer-iot'], capture_output=True, timeout=5)
+        except Exception as e:
+            print(f"[ScanReset] stop/restart processes warning: {e}")
+
+        try:
             # 1. Clear database tables containing operational metrics/alerts
             FlowRecord.objects.all().delete()
             Incident.objects.all().delete()
@@ -96,6 +104,10 @@ class ScanResetView(APIView):
             'flows_per_minute': 0,
             'alerts_per_minute': 0,
         })
+        # Tell simulation page to clear its state
+        _send_group('simulation', 'simulation_broadcast', {
+            'type': 'simulation_reset',
+        })
 
         return Response({"status": "ok"})
 
@@ -139,8 +151,36 @@ class FlowIngestView(APIView):
             ),
         }
         _send_group('dashboard', 'dashboard_broadcast', payload)
-        if alert_count:
-            _send_group('simulation', 'simulation_broadcast', {'type': 'simulation_update', 'is_running': True})
+
+        # Update active simulation session stats if one is running
+        session = SimulationSession.objects.filter(status='running').first()
+        if session:
+            session.flows_generated += saved
+            session.alerts_triggered += alert_count
+            session.save(update_fields=['flows_generated', 'alerts_triggered'])
+
+            # Send immediate live update to simulation websocket group
+            latest_flow = None
+            if saved > 0:
+                # Get the last flow in this batch
+                latest_flow = {
+                    'id': flow.id,
+                    'src_ip': flow.src_ip,
+                    'dst_ip': flow.dst_ip,
+                    'prediction': flow.prediction,
+                    'confidence': flow.confidence,
+                    'severity': flow.severity,
+                    'timestamp': flow.timestamp.isoformat()
+                }
+
+            _send_group('simulation', 'simulation_broadcast', {
+                'type': 'simulation_update',
+                'is_running': True,
+                'latest_flow': latest_flow,
+                'flows_generated': session.flows_generated,
+                'alerts_triggered': session.alerts_triggered,
+            })
+
         return Response({'status': 'ok', 'saved': saved})
 
 
@@ -155,6 +195,7 @@ class DashboardStatsView(APIView):
         total_flows = qs.count()
         total_alerts = qs.filter(is_alert=True).count()
         active_alerts = incident_qs.filter(status='open').count()
+        benign_flows = qs.filter(is_alert=False).count()
         threat_rate = (total_alerts / total_flows * 100) if total_flows else 0.0
         return Response(
             {

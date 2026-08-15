@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Download } from "lucide-react";
 import { useMemo } from "react";
 import { getAttackColor } from "@/lib/theme";
+import { API_BASE_URL } from "@/lib/api";
 
 interface DetectionScoreCardProps {
   stats: {
@@ -38,6 +39,74 @@ export default function DetectionScoreCard({ stats, attackTypes, loading }: Dete
     return <Skeleton className="h-[280px] w-full rounded-[var(--radius)]" />;
   }
 
+  const handleDownload = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/alerts/?limit=100`);
+      if (res.ok) {
+        const data = await res.json();
+        const results = data.results || [];
+        if (results.length === 0) {
+          alert("No alert data available to download.");
+          return;
+        }
+        const headers = [
+          "id",
+          "timestamp",
+          "severity",
+          "prediction",
+          "src_ip",
+          "dst_ip",
+          "dst_port",
+          "protocol",
+          "confidence",
+          "source_type",
+        ];
+        const rows = results.map((a: {
+          id: number;
+          timestamp: string;
+          severity: string;
+          prediction: string;
+          src_ip: string;
+          dst_ip: string;
+          dst_port?: number;
+          protocol?: string;
+          confidence: number;
+          source_type: string;
+        }) =>
+          [
+            a.id,
+            a.timestamp,
+            a.severity,
+            a.prediction,
+            a.src_ip,
+            a.dst_ip,
+            a.dst_port,
+            a.protocol,
+            a.confidence,
+            a.source_type,
+          ]
+            .map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`)
+            .join(","),
+        );
+        const csv = [headers.join(","), ...rows].join("\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `nexa-alerts-report-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } else {
+        alert("Failed to fetch alert report data.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error downloading report.");
+    }
+  };
+
   return (
     <Card className="p-6 shadow-none border-border bg-card flex flex-col">
       <header className="flex items-center justify-between mb-3">
@@ -66,7 +135,7 @@ export default function DetectionScoreCard({ stats, attackTypes, loading }: Dete
         <RingChart value={Math.min(100, detectionRate)} colors={breakdown.map((b) => b.color)} />
       </div>
 
-      <Button className="mt-5 h-10 rounded-full bg-foreground text-background hover:bg-foreground/90 gap-2 w-full">
+      <Button onClick={handleDownload} className="mt-5 h-10 rounded-full bg-foreground text-background hover:bg-foreground/90 gap-2 w-full cursor-pointer">
         <Download className="h-4 w-4" />
         Download report
       </Button>

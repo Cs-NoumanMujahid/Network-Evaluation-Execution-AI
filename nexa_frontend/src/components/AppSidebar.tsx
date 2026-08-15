@@ -41,7 +41,7 @@ const integrations = [
 ];
 
 const lab = [
-  { title: "Simulation",   url: "#", icon: PlaySquare },
+  { title: "Simulation",   url: "/simulation", icon: PlaySquare },
   { title: "Benchmarking", url: "#", icon: BarChart3 },
 ];
 

@@ -29,11 +29,20 @@ def start_attack_process(attack_type):
 def stop_attack_process():
     global current_process
     with process_lock:
-        if not current_process:
-            return False
-        if current_process.poll() is None:
-            current_process.kill()
-        current_process = None
+        if current_process:
+            if current_process.poll() is None:
+                current_process.kill()
+            current_process = None
+        
+        # Kill any orphaned processes inside the kali-attacker container
+        try:
+            subprocess.run(['docker', 'exec', 'kali-attacker', 'pkill', '-f', 'attack.sh'], capture_output=True, timeout=3)
+            subprocess.run(['docker', 'exec', 'kali-attacker', 'pkill', '-f', 'nmap'], capture_output=True, timeout=3)
+            subprocess.run(['docker', 'exec', 'kali-attacker', 'pkill', '-f', 'hydra'], capture_output=True, timeout=3)
+            subprocess.run(['docker', 'exec', 'kali-attacker', 'pkill', '-f', 'hping3'], capture_output=True, timeout=3)
+            subprocess.run(['docker', 'exec', 'kali-attacker', 'pkill', '-f', 'sqlmap'], capture_output=True, timeout=3)
+        except Exception as e:
+            print(f"Error killing docker attack processes: {e}")
         return True
 
 
