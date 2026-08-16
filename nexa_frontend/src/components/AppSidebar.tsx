@@ -36,8 +36,8 @@ const monitor = [
 ];
 
 const integrations = [
-  { title: "Integrations", url: "#", icon: Blocks },
-  { title: "Sources",      url: "#", icon: Database },
+  { title: "Integrations", url: "/integrations", icon: Blocks },
+  { title: "Sources",      url: "/sources", icon: Database },
 ];
 
 const lab = [

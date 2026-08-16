@@ -12,9 +12,12 @@ import {
   Network,
   Target,
   Cpu,
+  Ban,
+  Check,
+  ShieldCheck,
   AlertTriangle,
-  Gauge,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { Card } from "@/components/ui/card";
@@ -43,7 +46,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { severityColors, getAttackColor, cyberPalette } from "@/lib/theme";
-import { fetchAlertDetail, AlertResultFull } from "@/lib/api";
+import { API_BASE_URL } from "@/lib/api";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 
 interface AlertResult {
   id: number | string;
@@ -93,6 +97,135 @@ function AlertsPageInner() {
   const [severityFilter, setSeverityFilter] = useState<string>(initialSeverity);
   const [attackFilter, setAttackFilter] = useState<string>(initialAttack);
   const [selected, setSelected] = useState<AlertResult | null>(null);
+
+  const [blockedIps, setBlockedIps] = useState<string[]>([]);
+  const [whitelistedIps, setWhitelistedIps] = useState<string[]>([]);
+
+  // Confirmation dialog state
+  const [confirmAction, setConfirmAction] = useState<{
+    type: "block" | "whitelist" | "unblock" | "removeWhitelist";
+    ip: string;
+  } | null>(null);
+
+  // Seed blocked and whitelisted IPs from API response on load
+  useEffect(() => {
+    if (alerts) {
+      const rawAlerts = alerts as unknown as { blocked_ips?: string[]; whitelisted_ips?: string[] };
+      setBlockedIps(rawAlerts.blocked_ips || []);
+      setWhitelistedIps(rawAlerts.whitelisted_ips || []);
+    }
+  }, [alerts]);
+
+  const handleBlock = async (ip: string) => {
+    setBlockedIps((prev) => [...prev, ip]);
+    setWhitelistedIps((prev) => prev.filter((x) => x !== ip));
+    const toastId = toast.loading("Applying block rule…", {
+      description: `Targeting IP address ${ip}`
+    });
+    try {
+      const res = await fetch(`${API_BASE_URL}/block/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ip }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("IP Address Blocked", {
+        id: toastId,
+        description: `${ip} has been blocked and traffic dropped.`
+      });
+    } catch {
+      setBlockedIps((prev) => prev.filter((x) => x !== ip));
+      toast.error("Action Failed", {
+        id: toastId,
+        description: `Failed to block ${ip}. Check the backend connection.`
+      });
+    }
+  };
+
+  const handleUnblock = async (ip: string) => {
+    setBlockedIps((prev) => prev.filter((x) => x !== ip));
+    const toastId = toast.loading("Removing block rule…", {
+      description: `Targeting IP address ${ip}`
+    });
+    try {
+      const res = await fetch(`${API_BASE_URL}/unblock/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ip }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("IP Address Unblocked", {
+        id: toastId,
+        description: `Traffic restored successfully for ${ip}.`
+      });
+    } catch {
+      setBlockedIps((prev) => [...prev, ip]);
+      toast.error("Action Failed", {
+        id: toastId,
+        description: `Failed to unblock ${ip}. Check the backend connection.`
+      });
+    }
+  };
+
+  const handleWhitelist = async (ip: string) => {
+    setWhitelistedIps((prev) => [...prev, ip]);
+    setBlockedIps((prev) => prev.filter((x) => x !== ip));
+    const toastId = toast.loading("Adding to whitelist…", {
+      description: `Targeting IP address ${ip}`
+    });
+    try {
+      const res = await fetch(`${API_BASE_URL}/whitelist/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ip }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("IP Whitelisted", {
+        id: toastId,
+        description: `Future alerts from ${ip} will be suppressed.`
+      });
+    } catch {
+      setWhitelistedIps((prev) => prev.filter((x) => x !== ip));
+      toast.error("Action Failed", {
+        id: toastId,
+        description: `Failed to whitelist ${ip}. Check the backend connection.`
+      });
+    }
+  };
+
+  const handleRemoveWhitelist = async (ip: string) => {
+    setWhitelistedIps((prev) => prev.filter((x) => x !== ip));
+    const toastId = toast.loading("Removing from whitelist…", {
+      description: `Targeting IP address ${ip}`
+    });
+    try {
+      const res = await fetch(`${API_BASE_URL}/whitelist/?ip=${encodeURIComponent(ip)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Whitelist Removed", {
+        id: toastId,
+        description: `${ip} removed. Alerts will resume.`
+      });
+    } catch {
+      setWhitelistedIps((prev) => [...prev, ip]);
+      toast.error("Action Failed", {
+        id: toastId,
+        description: `Failed to remove whitelist for ${ip}.`
+      });
+    }
+  };
+
+  // Dispatch confirmed action
+  const executeConfirmedAction = () => {
+    if (!confirmAction) return;
+    const { type, ip } = confirmAction;
+    setConfirmAction(null);
+    if (type === "block") handleBlock(ip);
+    else if (type === "unblock") handleUnblock(ip);
+    else if (type === "whitelist") handleWhitelist(ip);
+    else if (type === "removeWhitelist") handleRemoveWhitelist(ip);
+  };
 
   // Unique attack types in current page (for filter dropdown) — trim to collapse
   // whitespace variants the ML pipeline may produce.
@@ -154,72 +287,121 @@ function AlertsPageInner() {
         )}
       </header>
 
+      {/* Active Rules Status Bar */}
+      {(blockedIps.length > 0 || whitelistedIps.length > 0) && (
+        <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 rounded-xl border border-border/80 bg-muted/20 text-xs">
+          {blockedIps.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-semibold text-muted-foreground">Blocked IPs:</span>
+              {blockedIps.map((ip) => (
+                <span
+                  key={ip}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20 font-mono text-[11px]"
+                >
+                  {ip}
+                  <button
+                    onClick={() => setConfirmAction({ type: "unblock", ip })}
+                    className="hover:bg-red-500/20 rounded-full p-0.5 transition-colors"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          {blockedIps.length > 0 && whitelistedIps.length > 0 && (
+            <div className="h-4 w-[1px] bg-border/80 hidden sm:block" />
+          )}
+          {whitelistedIps.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-semibold text-muted-foreground">Whitelisted IPs:</span>
+              {whitelistedIps.map((ip) => (
+                <span
+                  key={ip}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono text-[11px]"
+                >
+                  {ip}
+                  <button
+                    onClick={() => setConfirmAction({ type: "removeWhitelist", ip })}
+                    className="hover:bg-emerald-500/20 rounded-full p-0.5 transition-colors"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Filter bar */}
-      <Card className="p-4 shadow-none border-border bg-card">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div className="md:col-span-5 relative">
+      <Card className="p-3 shadow-none border-border bg-card rounded-2xl">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
+          <div className="relative w-full sm:w-[420px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search source IP, destination IP, or attack type…"
-              className="pl-9"
+              className="pl-9 h-9 rounded-full border-border bg-background"
             />
           </div>
-          <div className="md:col-span-3">
-            <Select value={severityFilter} onValueChange={setSeverityFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="All severities" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All severities</SelectItem>
-                {SEVERITIES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    <span className="inline-flex items-center gap-2">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: severityColors[s] }}
-                      />
-                      {s}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="md:col-span-3">
-            <Select value={attackFilter} onValueChange={setAttackFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="All attack types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All attack types</SelectItem>
-                {attackTypes.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="md:col-span-1">
-            <Select
-              value={String(pageSize)}
-              onValueChange={(v) => {
-                setPageSize(Number(v));
-                setPage(1);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="10">10</SelectItem>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end">
+            <div className="w-[140px] shrink-0">
+              <Select value={severityFilter} onValueChange={setSeverityFilter}>
+                <SelectTrigger className="h-9 rounded-full border-border bg-background text-xs">
+                  <SelectValue placeholder="All severities" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All severities</SelectItem>
+                  {SEVERITIES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{ backgroundColor: severityColors[s] }}
+                        />
+                        {s}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-[150px] shrink-0">
+              <Select value={attackFilter} onValueChange={setAttackFilter}>
+                <SelectTrigger className="h-9 rounded-full border-border bg-background text-xs">
+                  <SelectValue placeholder="All attack types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All attack types</SelectItem>
+                  {attackTypes.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-[80px] shrink-0">
+              <Select
+                value={String(pageSize)}
+                onValueChange={(v) => {
+                  setPageSize(Number(v));
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-9 rounded-full border-border bg-background text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
       </Card>
@@ -247,13 +429,16 @@ function AlertsPageInner() {
                 <TableHead className="h-10 text-xs font-medium text-muted-foreground bg-muted/40">
                   Confidence
                 </TableHead>
+                <TableHead className="h-10 text-xs font-medium text-muted-foreground bg-muted/40">
+                  Recommended Actions
+                </TableHead>
                 <TableHead className="h-10 text-xs font-medium text-muted-foreground bg-muted/40" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={7} className="h-24 text-center text-sm text-muted-foreground">
                     No alerts match the current filters.
                   </TableCell>
                 </TableRow>
@@ -262,6 +447,8 @@ function AlertsPageInner() {
                   const severity = alert.severity.toUpperCase();
                   const sColor = severityColors[severity] || cyberPalette.red;
                   const aColor = getAttackColor(alert.prediction);
+                  const isBlocked = blockedIps.includes(alert.src_ip);
+                  const isWhitelisted = whitelistedIps.includes(alert.src_ip);
                   return (
                     <TableRow
                       key={alert.id}
@@ -316,6 +503,76 @@ function AlertsPageInner() {
                           {((alert.confidence || 0) * 100).toFixed(1)}%
                         </span>
                       </TableCell>
+                      <TableCell className="py-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5">
+                          {isBlocked ? (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    onClick={() => setConfirmAction({ type: "unblock", ip: alert.src_ip })}
+                                    className="h-7 w-7 rounded-full bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20"
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="text-xs">
+                                  IP Blocked. Click to Unblock / Restore device.
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : (
+                            <>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="icon"
+                                      variant="outline"
+                                      onClick={() => setConfirmAction({ type: "block", ip: alert.src_ip })}
+                                      className="h-7 w-7 rounded-full bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20"
+                                    >
+                                      <Ban className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="text-xs">
+                                    Block this IP from the network instantly.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="icon"
+                                      variant="outline"
+                                      disabled={isWhitelisted}
+                                      onClick={() => !isWhitelisted && setConfirmAction({ type: "whitelist", ip: alert.src_ip })}
+                                      className={`h-7 w-7 rounded-full ${
+                                        isWhitelisted 
+                                          ? "bg-muted text-muted-foreground border-border" 
+                                          : "bg-muted/40 text-foreground/70 border-border/80 hover:bg-muted"
+                                      }`}
+                                    >
+                                      {isWhitelisted ? (
+                                        <Check className="h-3.5 w-3.5 text-emerald-500" />
+                                      ) : (
+                                        <ShieldCheck className="h-3.5 w-3.5" />
+                                      )}
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="text-xs">
+                                    {isWhitelisted ? "This IP is whitelisted" : "Whitelist IP to suppress future alerts."}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="py-3 text-right">
                         <Button
                           variant="outline"
@@ -363,6 +620,63 @@ function AlertsPageInner() {
 
       {/* Alert detail dialog */}
       <AlertDetailDialog alert={selected} onClose={() => setSelected(null)} />
+
+      {/* Confirmation dialog for destructive actions */}
+      <Dialog open={!!confirmAction} onOpenChange={(open) => !open && setConfirmAction(null)}>
+        <DialogContent className="max-w-sm border-border bg-card rounded-2xl p-6">
+          <DialogHeader className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className={`h-10 w-10 rounded-full grid place-items-center ${
+                confirmAction?.type === "block" ? "bg-red-500/10" :
+                confirmAction?.type === "whitelist" ? "bg-emerald-500/10" :
+                "bg-muted"
+              }`}>
+                <AlertTriangle className={`h-5 w-5 ${
+                  confirmAction?.type === "block" ? "text-red-500" :
+                  confirmAction?.type === "whitelist" ? "text-emerald-500" :
+                  "text-muted-foreground"
+                }`} />
+              </div>
+              <div>
+                <DialogTitle className="text-base font-semibold text-foreground">
+                  {confirmAction?.type === "block" && "Block IP Address"}
+                  {confirmAction?.type === "unblock" && "Unblock IP Address"}
+                  {confirmAction?.type === "whitelist" && "Whitelist IP Address"}
+                  {confirmAction?.type === "removeWhitelist" && "Remove from Whitelist"}
+                </DialogTitle>
+              </div>
+            </div>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground mt-1">
+            {confirmAction?.type === "block" && (
+              <>Drop all traffic from <span className="font-mono font-semibold text-foreground">{confirmAction.ip}</span>? A firewall rule will be applied immediately.</>)}
+            {confirmAction?.type === "unblock" && (
+              <>Restore traffic from <span className="font-mono font-semibold text-foreground">{confirmAction?.ip}</span>? The firewall block rule will be removed.</>)}
+            {confirmAction?.type === "whitelist" && (
+              <>Suppress all future alerts from <span className="font-mono font-semibold text-foreground">{confirmAction.ip}</span>? This IP will be treated as trusted.</>)}
+            {confirmAction?.type === "removeWhitelist" && (
+              <>Remove <span className="font-mono font-semibold text-foreground">{confirmAction?.ip}</span> from the whitelist? Alerts will resume.</>)}
+          </p>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="ghost" onClick={() => setConfirmAction(null)} className="rounded-full h-8 px-4 text-xs">
+              Cancel
+            </Button>
+            <Button
+              onClick={executeConfirmedAction}
+              className={`rounded-full h-8 px-4 text-xs text-white ${
+                confirmAction?.type === "block" ? "bg-red-500 hover:bg-red-600" :
+                confirmAction?.type === "whitelist" ? "bg-emerald-600 hover:bg-emerald-700" :
+                "bg-foreground hover:bg-foreground/90 text-background"
+              }`}
+            >
+              {confirmAction?.type === "block" && "Yes, Block IP"}
+              {confirmAction?.type === "unblock" && "Yes, Unblock IP"}
+              {confirmAction?.type === "whitelist" && "Yes, Whitelist IP"}
+              {confirmAction?.type === "removeWhitelist" && "Yes, Remove"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -374,21 +688,7 @@ function AlertDetailDialog({
   alert: AlertResult | null;
   onClose: () => void;
 }) {
-  const [full, setFull] = useState<AlertResultFull | null>(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // Fetch the rich FlowRecord (with flow metrics) whenever an alert is opened
-  useEffect(() => {
-    if (!alert) {
-      setFull(null);
-      return;
-    }
-    setLoadingDetail(true);
-    setFull(null);
-    fetchAlertDetail(alert.id)
-      .then((data) => setFull(data))
-      .finally(() => setLoadingDetail(false));
-  }, [alert]);
 
   if (!alert) return null;
   const severity = alert.severity.toUpperCase();
@@ -404,8 +704,7 @@ function AlertDetailDialog({
     /* ignore */
   }
 
-  const fmtNum = (n?: number) =>
-    n === undefined || n === null || Number.isNaN(n) ? "—" : n.toLocaleString();
+
 
   return (
     <Dialog open={!!alert} onOpenChange={(o) => !o && onClose()}>
@@ -498,74 +797,9 @@ function AlertDetailDialog({
               Above the model&apos;s 80% threshold means high-confidence classification.
             </div>
           </DetailRow>
-
-          {/* Flow metrics (from /api/alerts/<id>/) */}
-          <DetailRow icon={Gauge} label="Flow telemetry">
-            {loadingDetail ? (
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-3/4" />
-              </div>
-            ) : full ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-                <FlowMetric label="Duration" value={`${(full.flow_duration ?? 0).toFixed(2)}s`} />
-                <FlowMetric
-                  label="Bytes/sec"
-                  value={fmtNum(Math.round(full.flow_bytes_per_sec ?? 0))}
-                />
-                <FlowMetric
-                  label="Packets/sec"
-                  value={fmtNum(Math.round(full.flow_packets_per_sec ?? 0))}
-                />
-                <FlowMetric label="Fwd packets" value={fmtNum(full.total_fwd_packets)} />
-                <FlowMetric label="Bwd packets" value={fmtNum(full.total_bwd_packets)} />
-                <FlowMetric
-                  label="Registered ID"
-                  value={full.registered_id || "—"}
-                  mono
-                />
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Flow telemetry unavailable for this alert.
-              </p>
-            )}
-          </DetailRow>
-
-          {/* Recommended action */}
-          {alert.recommended_action && (
-            <DetailRow icon={AlertTriangle} label="Recommended action">
-              <div className="text-sm text-foreground leading-relaxed bg-muted/40 border border-border rounded-md p-3">
-                {alert.recommended_action}
-              </div>
-            </DetailRow>
-          )}
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function FlowMetric({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="rounded-md border border-border bg-muted/40 p-2.5">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div
-        className={`text-sm font-semibold tabular-nums text-foreground mt-0.5 truncate ${
-          mono ? "font-mono text-xs" : ""
-        }`}
-      >
-        {value}
-      </div>
-    </div>
   );
 }
 

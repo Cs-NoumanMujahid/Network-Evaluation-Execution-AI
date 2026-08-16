@@ -10,6 +10,7 @@ interface DashboardStats {
   active_alerts: number;
   detection_rate: number;
   benign_flows: number;
+  resolved_alerts?: number;
 }
 
 interface AttackTypesData {
@@ -32,6 +33,7 @@ interface TopAttacker {
   src_ip: string;
   count: number;
   attack_types: string[];
+  status?: string;
 }
 
 interface TopAttackersData {
@@ -93,6 +95,7 @@ const MOCK_DATA = {
     active_alerts: 24,
     detection_rate: 21.33,
     benign_flows: 1180,
+    resolved_alerts: 0,
   },
   attackTypes: {
     labels: ["Benign", "PortScan", "SQL-Injection", "BruteForce-Web", "DoS-Slowloris"],
@@ -288,6 +291,7 @@ export const useDashboardData = () => {
               total_flows: data.total_flows ?? prev.total_flows,
               total_alerts: data.total_alerts ?? prev.total_alerts,
               active_alerts: data.active_alerts ?? prev.active_alerts,
+              resolved_alerts: data.resolved_alerts ?? prev.resolved_alerts,
               detection_rate: data.detection_rate ?? prev.detection_rate,
             };
           });

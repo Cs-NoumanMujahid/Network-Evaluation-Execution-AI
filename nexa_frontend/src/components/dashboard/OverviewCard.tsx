@@ -13,6 +13,7 @@ interface OverviewCardProps {
     active_alerts?: number;
     detection_rate?: number;
     benign_flows?: number;
+    resolved_alerts?: number;
   } | null;
   loading: boolean;
 }
@@ -21,7 +22,6 @@ export default function OverviewCard({ stats, loading }: OverviewCardProps) {
   const totalFlows = stats?.total_flows || 0;
   const activeAlerts = stats?.active_alerts || 0;
   const benign = stats?.benign_flows || 0;
-  const totalAlerts = stats?.total_alerts || 0;
   const threats = Math.max(0, totalFlows - benign);
   const threatRatio = totalFlows > 0 ? Math.min(100, (threats / totalFlows) * 100) : 0;
 
@@ -90,7 +90,7 @@ export default function OverviewCard({ stats, loading }: OverviewCardProps) {
           hint="See active alerts"
         />
         <MiniStat
-          value={totalAlerts - activeAlerts}
+          value={stats?.resolved_alerts || 0}
           label="Resolved"
           href="/incidents"
           hint="Open incidents"

@@ -148,3 +148,19 @@ class SimulationSession(models.Model):
 
     class Meta:
         ordering = ['-started_at']
+
+
+class BlockedIP(models.Model):
+    ip = models.GenericIPAddressField(unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.ip
+
+
+class WhitelistedIP(models.Model):
+    ip = models.GenericIPAddressField(unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.ip

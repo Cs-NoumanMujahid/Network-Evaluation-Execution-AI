@@ -1,5 +1,3 @@
-"use client";
-
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -7,6 +5,7 @@ import { Download } from "lucide-react";
 import { useMemo } from "react";
 import { getAttackColor } from "@/lib/theme";
 import { API_BASE_URL } from "@/lib/api";
+import { toast } from "sonner";
 
 interface DetectionScoreCardProps {
   stats: {
@@ -40,13 +39,14 @@ export default function DetectionScoreCard({ stats, attackTypes, loading }: Dete
   }
 
   const handleDownload = async () => {
+    const toastId = toast.loading("Preparing report…");
     try {
       const res = await fetch(`${API_BASE_URL}/alerts/?limit=100`);
       if (res.ok) {
         const data = await res.json();
         const results = data.results || [];
         if (results.length === 0) {
-          alert("No alert data available to download.");
+          toast.warning("No alert data available to download.", { id: toastId });
           return;
         }
         const headers = [
@@ -98,12 +98,13 @@ export default function DetectionScoreCard({ stats, attackTypes, loading }: Dete
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
+        toast.success(`Report downloaded — ${results.length} alerts exported.`, { id: toastId });
       } else {
-        alert("Failed to fetch alert report data.");
+        toast.error("Failed to fetch alert report data. Check if the backend is running.", { id: toastId });
       }
     } catch (err) {
       console.error(err);
-      alert("Error downloading report.");
+      toast.error("Error downloading report. Please try again.", { id: toastId });
     }
   };
 

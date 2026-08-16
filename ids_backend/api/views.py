@@ -63,6 +63,18 @@ class ScanResetView(APIView):
             SystemHealth.objects.all().delete()
             TargetHealth.objects.all().delete()
             SimulationSession.objects.all().delete()
+
+            from .models import BlockedIP, WhitelistedIP
+            BlockedIP.objects.all().delete()
+            WhitelistedIP.objects.all().delete()
+
+            try:
+                subprocess.run([
+                    "docker", "exec", "traffic-sniffer",
+                    "iptables", "-F", "INPUT"
+                ], timeout=3)
+            except Exception as e:
+                print(f"[ScanReset] iptables flush warning: {e}")
         except Exception as e:
             return Response(
                 {"status": "error", "message": f"Database cleanup failed: {str(e)}"},
@@ -119,8 +131,22 @@ class FlowIngestView(APIView):
         print(f"DEBUG: Ingesting flows at {now}")
         saved = 0
         alert_count = 0
+
+        from .models import WhitelistedIP, BlockedIP
+        whitelisted_ips = set(WhitelistedIP.objects.values_list('ip', flat=True))
+        blocked_ips = set(BlockedIP.objects.values_list('ip', flat=True))
+
         for item in flows:
+            src_ip = item.get('src_ip')
+            if src_ip and src_ip in blocked_ips:
+                continue
+
             item['timestamp'] = now
+            if src_ip and src_ip in whitelisted_ips:
+                item['is_alert'] = False
+                item['prediction'] = 'Benign'
+                item['severity'] = 'NORMAL'
+
             flow = FlowRecord.objects.create(**item)
             saved += 1
             if flow.is_alert:
@@ -137,12 +163,14 @@ class FlowIngestView(APIView):
         total_flows = FlowRecord.objects.count()
         total_alerts = FlowRecord.objects.filter(is_alert=True).count()
         active_alerts = Incident.objects.filter(status='open').count()
+        resolved_alerts = Incident.objects.filter(status='resolved').count()
         threat_rate = (total_alerts / total_flows * 100) if total_flows else 0.0
         payload = {
             'type': 'dashboard_update',
             'total_flows': total_flows,
             'total_alerts': total_alerts,
             'active_alerts': active_alerts,
+            'resolved_alerts': resolved_alerts,
             'detection_rate': round(threat_rate, 2),
             'latest_alerts': list(
                 FlowRecord.objects.filter(is_alert=True).order_by('-timestamp')[:10].values(
@@ -209,6 +237,7 @@ class DashboardStatsView(APIView):
         total_flows = qs.count()
         total_alerts = qs.filter(is_alert=True).count()
         active_alerts = incident_qs.filter(status='open').count()
+        resolved_alerts = incident_qs.filter(status='resolved').count()
         benign_flows = qs.filter(is_alert=False).count()
         threat_rate = (total_alerts / total_flows * 100) if total_flows else 0.0
         return Response(
@@ -216,6 +245,7 @@ class DashboardStatsView(APIView):
                 'total_flows': total_flows,
                 'total_alerts': total_alerts,
                 'active_alerts': active_alerts,
+                'resolved_alerts': resolved_alerts,
                 'detection_rate': round(threat_rate, 2),
                 'benign_flows': benign_flows,
             }
@@ -304,7 +334,15 @@ class TopAttackersView(APIView):
         for row in top:
             preds_qs = qs.filter(src_ip=row['src_ip'])
             preds = preds_qs.order_by().values_list('prediction', flat=True).distinct()
-            attackers.append({'src_ip': row['src_ip'], 'count': row['count'], 'attack_types': list(preds)})
+            # Get the real status from the most recent incident for this IP
+            latest_incident = Incident.objects.filter(src_ip=row['src_ip']).order_by('-created_at').first()
+            real_status = latest_incident.status if latest_incident else 'open'
+            attackers.append({
+                'src_ip': row['src_ip'],
+                'count': row['count'],
+                'attack_types': list(preds),
+                'status': real_status,
+            })
         return Response({'attackers': attackers})
 
 
@@ -424,6 +462,16 @@ class AlertListView(generics.ListAPIView):
         if source_type:
             qs = qs.filter(source_type=source_type)
         return qs
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        from .models import BlockedIP, WhitelistedIP
+        blocked = list(BlockedIP.objects.values_list('ip', flat=True))
+        whitelisted = list(WhitelistedIP.objects.values_list('ip', flat=True))
+        if isinstance(response.data, dict):
+            response.data['blocked_ips'] = blocked
+            response.data['whitelisted_ips'] = whitelisted
+        return response
 
 
 class SiteListCreateView(generics.ListCreateAPIView):
@@ -734,3 +782,96 @@ class IPHistoryView(APIView):
                 'recent_flows': recent,
             }
         )
+
+
+import subprocess
+
+class BlockIPView(APIView):
+    def post(self, request):
+        ip = request.data.get('ip')
+        if not ip:
+            return Response({'error': 'IP is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        from .models import BlockedIP
+        obj, created = BlockedIP.objects.get_or_create(ip=ip)
+        
+        # Execute real network drop inside netshoot sniffer container sharing dvwa's namespace
+        if created:
+            try:
+                subprocess.run([
+                    "docker", "exec", "traffic-sniffer",
+                    "iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"
+                ], timeout=3)
+            except Exception as e:
+                print(f"Warning: Failed to execute iptables block in container: {e}")
+            
+        # Stop attacker tool running inside kali container
+        try:
+            subprocess.run([
+                "docker", "exec", "kali-attacker",
+                "pkill", "-f", "nmap|hping3|hydra|sqlmap"
+            ], timeout=3)
+        except Exception as e:
+            print(f"Warning: Failed to kill kali attack tool: {e}")
+            
+        # Resolve all past incidents from this blocked attacker IP
+        from .models import Incident
+        Incident.objects.filter(src_ip=ip).update(status='resolved', resolved_at=timezone.now())
+
+        return Response({'status': 'ok', 'ip': ip, 'created': created})
+
+
+class UnblockIPView(APIView):
+    def post(self, request):
+        ip = request.data.get('ip')
+        if not ip:
+            return Response({'error': 'IP is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        from .models import BlockedIP
+        BlockedIP.objects.filter(ip=ip).delete()
+        
+        # Remove real network drop rule
+        try:
+            subprocess.run([
+                "docker", "exec", "traffic-sniffer",
+                "iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"
+            ], timeout=3)
+        except Exception as e:
+            print(f"Warning: Failed to execute iptables delete in container: {e}")
+            
+        return Response({'status': 'ok', 'ip': ip})
+
+
+class WhitelistIPView(APIView):
+    def post(self, request):
+        ip = request.data.get('ip')
+        if not ip:
+            return Response({'error': 'IP is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        from .models import WhitelistedIP, BlockedIP
+        obj, created = WhitelistedIP.objects.get_or_create(ip=ip)
+        
+        # Proactively unblock IP if it was blocked
+        BlockedIP.objects.filter(ip=ip).delete()
+        try:
+            subprocess.run([
+                "docker", "exec", "traffic-sniffer",
+                "iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"
+            ], timeout=3)
+        except Exception as e:
+            pass
+            
+        # Resolve all past incidents from this whitelisted IP
+        from .models import Incident
+        Incident.objects.filter(src_ip=ip).update(status='resolved', resolved_at=timezone.now())
+
+        return Response({'status': 'ok', 'ip': ip, 'created': created})
+
+    def delete(self, request):
+        ip = request.data.get('ip') or request.query_params.get('ip')
+        if not ip:
+            return Response({'error': 'IP is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        from .models import WhitelistedIP
+        WhitelistedIP.objects.filter(ip=ip).delete()
+        return Response({'status': 'ok', 'ip': ip})

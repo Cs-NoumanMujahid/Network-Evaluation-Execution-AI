@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { SourceProvider } from "@/components/providers/SourceContext";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { Toaster } from "sonner";
 import { cookies } from "next/headers";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -53,6 +54,25 @@ export default async function RootLayout({
             </SidebarProvider>
           </SourceProvider>
         </ThemeProvider>
+        <Toaster
+          position="top-right"
+          closeButton
+          toastOptions={{
+            style: {
+              background: "#0c0f17",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              color: "#ffffff",
+              borderRadius: "12px",
+              padding: "14px 16px",
+              boxShadow: "0 10px 30px -10px rgba(0,0,0,0.5)",
+            },
+            classNames: {
+              title: "text-sm font-semibold text-white",
+              description: "text-xs !text-gray-200 mt-0.5 block",
+              closeButton: "bg-transparent text-gray-400 hover:text-white border-0 hover:bg-slate-800 transition",
+            },
+          }}
+        />
       </body>
     </html>
   );

@@ -31,4 +31,7 @@ urlpatterns = [
     path('incidents/<int:pk>/', views.IncidentDetailView.as_view()),
     path('incidents/<int:pk>/status/', views.IncidentStatusUpdateView.as_view()),
     path('incidents/<int:pk>/ip-history/', views.IPHistoryView.as_view()),
+    path('block/', views.BlockIPView.as_view()),
+    path('unblock/', views.UnblockIPView.as_view()),
+    path('whitelist/', views.WhitelistIPView.as_view()),
 ]

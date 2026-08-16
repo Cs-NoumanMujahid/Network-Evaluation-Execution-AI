@@ -18,7 +18,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTablePagination } from "@/components/table/DataTablePagination";
 import {
@@ -144,24 +143,6 @@ export default function RecentAlertsTable({
           {((row.original.confidence || 0) * 100).toFixed(1)}%
         </span>
       ),
-    },
-    {
-      id: "actions",
-      header: "",
-      cell: ({ row }) => {
-        const action = row.original.recommended_action;
-        return (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!action}
-            onClick={() => setSelectedAction(action || null)}
-            className="h-7 px-2.5 text-xs font-medium"
-          >
-            View
-          </Button>
-        );
-      },
     },
   ];
 

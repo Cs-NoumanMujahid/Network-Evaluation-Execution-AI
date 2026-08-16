@@ -18,23 +18,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getAttackColor, severityColors } from "@/lib/theme";
 import { fetchAlertsBySource, AlertResultLite } from "@/lib/api";
 
-const statusFor = (
-  count: number,
-  totalAlerts: number,
-): "Active" | "Mitigating" | "Resolved" => {
-  const max = totalAlerts || count || 1;
-  const pct = Math.min(100, Math.round((count / max) * 100));
-  return pct > 60 ? "Active" : pct > 25 ? "Mitigating" : "Resolved";
+const statusColors: Record<string, string> = {
+  open: "var(--color-status-critical)",
+  acknowledged: "var(--color-status-medium)",
+  resolved: "var(--color-status-low)",
 };
 
-const statusColors: Record<string, string> = {
-  Active: "var(--color-status-critical)",
-  Mitigating: "var(--color-status-medium)",
-  Resolved: "var(--color-status-low)",
+const statusLabel: Record<string, string> = {
+  open: "Active",
+  acknowledged: "Investigating",
+  resolved: "Resolved",
 };
 
 export default function IncidentsPage() {
-  const { topAttackers, stats, loading } = useDashboardData();
+  const { topAttackers, loading } = useDashboardData();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [relatedAlerts, setRelatedAlerts] = useState<Record<string, AlertResultLite[]>>({});
   const [loadingIp, setLoadingIp] = useState<string | null>(null);
@@ -79,7 +76,7 @@ export default function IncidentsPage() {
       ) : (
         <div className="flex flex-col gap-3">
           {incidents.map((inc) => {
-            const status = statusFor(inc.count, stats?.total_alerts || 0);
+            const status = inc.status || 'open';
             const primaryAttack = inc.attack_types[0] || "Unknown";
             const color = getAttackColor(primaryAttack);
             const isOpen = expanded === inc.src_ip;
@@ -107,9 +104,9 @@ export default function IncidentsPage() {
                       </h3>
                       <span
                         className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"
-                        style={{ backgroundColor: statusColors[status] }}
+                        style={{ backgroundColor: statusColors[status] || statusColors['open'] }}
                       >
-                        {status}
+                        {statusLabel[status] || status}
                       </span>
                     </div>
 
