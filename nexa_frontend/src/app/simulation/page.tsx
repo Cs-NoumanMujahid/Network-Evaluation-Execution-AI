@@ -97,8 +97,8 @@ export default function SimulationPage() {
   // Backfill logs
   const fetchLiveFeed = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/simulation/live-feed/`);
-      if (res.ok) {
+      const res = await fetch(`${API_BASE_URL}/simulation/live-feed/`).catch(() => null);
+      if (res && res.ok) {
         const data = await res.json();
         setLiveFlows(data.flows || []);
       }
@@ -111,8 +111,8 @@ export default function SimulationPage() {
   const fetchTrafficVolume = useCallback(async () => {
     setChartLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/dashboard/traffic-volume/?minutes=60`);
-      if (res.ok) {
+      const res = await fetch(`${API_BASE_URL}/dashboard/traffic-volume/?minutes=60`).catch(() => null);
+      if (res && res.ok) {
         const data = await res.json();
         setTrafficVolumeData(data);
       }
@@ -201,8 +201,8 @@ export default function SimulationPage() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/simulation/status/`);
-        if (res.ok) {
+        const res = await fetch(`${API_BASE_URL}/simulation/status/`).catch(() => null);
+        if (res && res.ok) {
           const data = await res.json();
           setIsRunning(data.is_running);
           if (data.is_running) {
