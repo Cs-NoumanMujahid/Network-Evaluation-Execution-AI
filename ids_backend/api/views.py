@@ -2,7 +2,7 @@ import threading
 import os
 import shutil
 from datetime import timedelta
-from django.db.models import Count, Max, Min, Q
+from django.db.models import Count, Max, Min, Q, Avg
 from django.db.models.functions import TruncDate, TruncHour, TruncMinute
 from django.utils import timezone
 from django.conf import settings
@@ -184,6 +184,16 @@ class FlowIngestView(APIView):
         return Response({'status': 'ok', 'saved': saved})
 
 
+def _filter_by_date(request, qs, date_field='timestamp'):
+    date_from = request.query_params.get('date_from')
+    date_to = request.query_params.get('date_to')
+    if date_from:
+        qs = qs.filter(**{f"{date_field}__date__gte": date_from})
+    if date_to:
+        qs = qs.filter(**{f"{date_field}__date__lte": date_to})
+    return qs
+
+
 class DashboardStatsView(APIView):
     def get(self, request):
         source_type = _source_type(request)
@@ -192,6 +202,10 @@ class DashboardStatsView(APIView):
         if source_type:
             qs = qs.filter(source_type=source_type)
             incident_qs = incident_qs.filter(flow__source_type=source_type)
+        
+        qs = _filter_by_date(request, qs, 'timestamp')
+        incident_qs = _filter_by_date(request, incident_qs, 'created_at')
+
         total_flows = qs.count()
         total_alerts = qs.filter(is_alert=True).count()
         active_alerts = incident_qs.filter(status='open').count()
@@ -214,6 +228,8 @@ class AttackTypesView(APIView):
         source_type = _source_type(request)
         if source_type:
             qs = qs.filter(source_type=source_type)
+        
+        qs = _filter_by_date(request, qs, 'timestamp')
         rows = qs.values('prediction').annotate(count=Count('id')).order_by('-count')
         return Response({'labels': [x['prediction'] for x in rows], 'values': [x['count'] for x in rows]})
 
@@ -224,6 +240,8 @@ class SeverityDistributionView(APIView):
         source_type = _source_type(request)
         if source_type:
             qs = qs.filter(source_type=source_type)
+        
+        qs = _filter_by_date(request, qs, 'timestamp')
         rows = qs.values('severity').annotate(count=Count('id')).order_by('-count')
         return Response({'labels': [x['severity'] for x in rows], 'values': [x['count'] for x in rows]})
 
@@ -279,10 +297,13 @@ class TopAttackersView(APIView):
         source_type = _source_type(request)
         if source_type:
             qs = qs.filter(source_type=source_type)
+        
+        qs = _filter_by_date(request, qs, 'timestamp')
         top = qs.values('src_ip').annotate(count=Count('id')).order_by('-count')[:limit]
         attackers = []
         for row in top:
-            preds = qs.filter(src_ip=row['src_ip']).values_list('prediction', flat=True).distinct()
+            preds_qs = qs.filter(src_ip=row['src_ip'])
+            preds = preds_qs.order_by().values_list('prediction', flat=True).distinct()
             attackers.append({'src_ip': row['src_ip'], 'count': row['count'], 'attack_types': list(preds)})
         return Response({'attackers': attackers})
 
@@ -294,12 +315,14 @@ class TopTargetsView(APIView):
         source_type = _source_type(request)
         if source_type:
             qs = qs.filter(source_type=source_type)
+        
+        qs = _filter_by_date(request, qs, 'timestamp')
         top = qs.values('dst_ip').annotate(count=Count('id')).order_by('-count')[:limit]
         targets = []
         for row in top:
             target_qs = qs.filter(dst_ip=row['dst_ip'])
-            preds = target_qs.values_list('prediction', flat=True).distinct()
-            ports = target_qs.values_list('dst_port', flat=True).distinct()
+            preds = target_qs.order_by().values_list('prediction', flat=True).distinct()
+            ports = target_qs.order_by().values_list('dst_port', flat=True).distinct()
             last_record = target_qs.order_by('-timestamp').first()
             last_seen = last_record.timestamp if last_record else None
             targets.append({
@@ -310,6 +333,50 @@ class TopTargetsView(APIView):
                 'last_seen': last_seen,
             })
         return Response({'targets': targets})
+
+
+class ThreatBreakdownView(APIView):
+    def get(self, request):
+        qs = FlowRecord.objects.all()
+        source_type = _source_type(request)
+        if source_type:
+            qs = qs.filter(source_type=source_type)
+
+        qs = _filter_by_date(request, qs, 'timestamp')
+        total_threats = qs.filter(is_alert=True).count()
+
+        rows = qs.filter(is_alert=True).values('prediction').annotate(
+            count=Count('id'),
+            avg_confidence=Avg('confidence')
+        ).order_by('-count')
+
+        breakdown = []
+        for r in rows:
+            prediction = r['prediction']
+            count = r['count']
+            avg_conf = r['avg_confidence'] or 0.0
+            pct = (count / total_threats * 100) if total_threats else 0.0
+
+            # Find peak activity time (hour of the day)
+            peak_row = qs.filter(is_alert=True, prediction=prediction).annotate(
+                hour=TruncHour('timestamp')
+            ).values('hour').annotate(
+                h_count=Count('id')
+            ).order_by('-h_count').first()
+
+            peak_time = "N/A"
+            if peak_row and peak_row['hour']:
+                peak_time = peak_row['hour'].strftime('%H:00')
+
+            breakdown.append({
+                'attack_type': prediction,
+                'count': count,
+                'percentage': round(pct, 2),
+                'avg_confidence': round(avg_conf, 2),
+                'peak_time': peak_time
+            })
+
+        return Response({'breakdown': breakdown})
 
 
 class PipelineStatusView(APIView):
@@ -621,11 +688,22 @@ class IncidentStatsView(APIView):
 
 class IncidentTimelineView(APIView):
     def get(self, request):
-        days = int(request.query_params.get('days', 30))
-        start = timezone.now() - timedelta(days=days)
+        qs = Incident.objects.all()
+        source_type = _source_type(request)
+        if source_type:
+            qs = qs.filter(flow__source_type=source_type)
+            
+        date_from = request.query_params.get('date_from')
+        date_to = request.query_params.get('date_to')
+        if date_from or date_to:
+            qs = _filter_by_date(request, qs, 'created_at')
+        else:
+            days = int(request.query_params.get('days', 30))
+            start = timezone.now() - timedelta(days=days)
+            qs = qs.filter(created_at__gte=start)
+            
         grouped = (
-            Incident.objects.filter(created_at__gte=start)
-            .annotate(day=TruncDate('created_at'))
+            qs.annotate(day=TruncDate('created_at'))
             .values('day')
             .annotate(count=Count('id'))
             .order_by('day')

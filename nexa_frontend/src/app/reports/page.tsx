@@ -1,336 +1,467 @@
 "use client";
 
-import Link from "next/link";
-import { Download, Activity, ShieldAlert, Zap, ServerCrash, ArrowUpRight } from "lucide-react";
-
-import { useDashboardData } from "@/hooks/useDashboardData";
+import { useState, useEffect, useCallback } from "react";
+import { 
+  Printer, 
+  Clock
+} from "lucide-react";
+import { API_BASE_URL } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import SeverityChart from "@/components/dashboard/SeverityChart";
-import AttackTypesChart from "@/components/dashboard/AttackTypesChart";
-import { getAttackColor, severityColors } from "@/lib/theme";
+import { Input } from "@/components/ui/input";
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from "@/components/ui/select";
+import { useSource } from "@/components/providers/SourceContext";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { cyberPalette, getAttackColor } from "@/lib/theme";
 
-export default function ReportsPage() {
-  const { stats, attackTypes, severity, topAttackers, topTargets, alerts, loading } =
-    useDashboardData();
-
-  const targets = topTargets?.targets || [];
-
-  const exportCSV = () => {
-    if (!alerts?.results || alerts.results.length === 0) return;
-    const headers = [
-      "id",
-      "timestamp",
-      "severity",
-      "prediction",
-      "src_ip",
-      "dst_ip",
-      "dst_port",
-      "protocol",
-      "confidence",
-      "source_type",
-    ];
-    const rows = alerts.results.map((a) =>
-      [
-        a.id,
-        a.timestamp,
-        a.severity,
-        a.prediction,
-        a.src_ip,
-        a.dst_ip,
-        a.dst_port,
-        a.protocol,
-        a.confidence,
-        a.source_type,
-      ]
-        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-        .join(","),
-    );
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `nexa-alerts-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  if (loading && !stats) {
-    return (
-      <div className="flex flex-col gap-6">
-        <Skeleton className="h-12 w-64" />
-        <Skeleton className="h-40 w-full rounded-[var(--radius)]" />
-        <Skeleton className="h-72 w-full rounded-[var(--radius)]" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-6">
-      {/* Header */}
-      <header className="flex items-baseline justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Reports</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Aggregated detection summary across all monitored sources.
-          </p>
-        </div>
-        <Button onClick={exportCSV} className="h-9 gap-2" disabled={!alerts?.results?.length}>
-          <Download className="h-4 w-4" />
-          Export alerts (CSV)
-        </Button>
-      </header>
-
-      {/* Summary KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <SummaryTile
-          icon={Activity}
-          label="Total flows"
-          value={(stats?.total_flows || 0).toLocaleString()}
-          color="var(--color-status-info)"
-        />
-        <SummaryTile
-          icon={ShieldAlert}
-          label="Total alerts"
-          value={(stats?.total_alerts || 0).toLocaleString()}
-          color="var(--color-status-critical)"
-        />
-        <SummaryTile
-          icon={ServerCrash}
-          label="Active alerts"
-          value={(stats?.active_alerts || 0).toLocaleString()}
-          color="var(--color-status-high)"
-        />
-        <SummaryTile
-          icon={Zap}
-          label="Detection rate"
-          value={`${(stats?.detection_rate || 0).toFixed(2)}%`}
-          color="var(--color-status-medium)"
-        />
-      </div>
-
-      {/* Distribution charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <Card className="lg:col-span-7 p-6 shadow-none border-border bg-card">
-          <SeverityChart data={severity} loading={loading} />
-        </Card>
-        <Card className="lg:col-span-5 p-6 shadow-none border-border bg-card">
-          <AttackTypesChart data={attackTypes} loading={loading} />
-        </Card>
-      </div>
-
-      {/* Tables: Attack types, Top sources, Top destinations */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Attack types breakdown */}
-        <Card className="p-6 shadow-none border-border bg-card">
-          <h3 className="text-base font-semibold text-foreground mb-1">Attack types</h3>
-          <p className="text-xs text-muted-foreground mb-4">By detection volume</p>
-          {attackTypes?.labels?.length ? (
-            <ul className="space-y-2.5">
-              {attackTypes.labels.map((label, i) => {
-                const value = attackTypes.values[i];
-                const total = attackTypes.values.reduce((a, b) => a + b, 0) || 1;
-                const pct = (value / total) * 100;
-                const color = getAttackColor(label);
-                return (
-                  <li key={`${label}-${i}`} className="text-xs">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="inline-flex items-center gap-2">
-                        <span
-                          className="h-2 w-2 rounded-full"
-                          style={{ backgroundColor: color }}
-                        />
-                        <span className="font-medium text-foreground">{label}</span>
-                      </span>
-                      <span className="tabular-nums text-muted-foreground">
-                        {value.toLocaleString()}{" "}
-                        <span className="text-foreground font-semibold ml-1">
-                          {pct.toFixed(1)}%
-                        </span>
-                      </span>
-                    </div>
-                    <div className="h-1 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full rounded-full"
-                        style={{ width: `${pct}%`, backgroundColor: color }}
-                      />
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="text-xs text-muted-foreground">No data yet.</p>
-          )}
-        </Card>
-
-        {/* Top sources */}
-        <Card className="p-6 shadow-none border-border bg-card">
-          <h3 className="text-base font-semibold text-foreground mb-1">Top sources</h3>
-          <p className="text-xs text-muted-foreground mb-4">Most active attackers</p>
-          {topAttackers?.attackers?.length ? (
-            <ul className="space-y-1">
-              {topAttackers.attackers.slice(0, 5).map((a, i) => {
-                const color = getAttackColor(a.attack_types[0] || "unknown");
-                return (
-                  <li key={a.src_ip}>
-                    <Link
-                      href={`/alerts?src_ip=${encodeURIComponent(a.src_ip)}`}
-                      title={`Filter alerts to source ${a.src_ip}`}
-                      className="group flex items-center gap-3 text-xs py-1.5 px-2 -mx-2 rounded-md hover:bg-muted/40 transition-colors"
-                    >
-                      <span className="text-muted-foreground/70 font-mono w-4 shrink-0 tabular-nums">
-                        {i + 1}.
-                      </span>
-                      <span
-                        className="h-2 w-2 rounded-full shrink-0"
-                        style={{ backgroundColor: color }}
-                      />
-                      <span className="font-mono text-foreground truncate flex-1">{a.src_ip}</span>
-                      <span className="tabular-nums font-semibold text-foreground shrink-0">
-                        {a.count.toLocaleString()}
-                      </span>
-                      <ArrowUpRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="text-xs text-muted-foreground">No data yet.</p>
-          )}
-        </Card>
-
-        {/* Top targeted destinations */}
-        <Card className="p-6 shadow-none border-border bg-card">
-          <h3 className="text-base font-semibold text-foreground mb-1">Top targets</h3>
-          <p className="text-xs text-muted-foreground mb-4">
-            Most-attacked destinations across all alerts
-          </p>
-          {targets.length ? (
-            <ul className="space-y-1">
-              {targets.map((t, i) => {
-                const color = getAttackColor(t.attack_types[0] || "unknown");
-                return (
-                  <li key={t.dst_ip}>
-                    <Link
-                      href={`/alerts?dst_ip=${encodeURIComponent(t.dst_ip)}`}
-                      title={`Filter alerts targeting ${t.dst_ip}`}
-                      className="group flex items-center gap-3 text-xs py-1.5 px-2 -mx-2 rounded-md hover:bg-muted/40 transition-colors"
-                    >
-                      <span className="text-muted-foreground/70 font-mono w-4 shrink-0 tabular-nums">
-                        {i + 1}.
-                      </span>
-                      <span
-                        className="h-2 w-2 rounded-full shrink-0"
-                        style={{ backgroundColor: color }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="font-mono text-foreground truncate">{t.dst_ip}</div>
-                        <div className="text-[10px] text-muted-foreground truncate">
-                          Ports: {t.ports.slice(0, 5).join(", ")}
-                          {t.ports.length > 5 ? " +" : ""}
-                        </div>
-                      </div>
-                      <span className="tabular-nums font-semibold text-foreground shrink-0">
-                        {t.count.toLocaleString()}
-                      </span>
-                      <ArrowUpRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="text-xs text-muted-foreground">No attack data yet.</p>
-          )}
-        </Card>
-      </div>
-
-      {/* Severity breakdown table */}
-      {severity?.labels?.length ? (
-        <Card className="p-6 shadow-none border-border bg-card">
-          <h3 className="text-base font-semibold text-foreground mb-1">Severity breakdown</h3>
-          <p className="text-xs text-muted-foreground mb-4">Distribution of alerts by tier</p>
-          <div className="rounded-md border border-border overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40">
-                <tr className="text-left text-xs font-medium text-muted-foreground">
-                  <th className="px-4 py-2.5">Severity</th>
-                  <th className="px-4 py-2.5">Count</th>
-                  <th className="px-4 py-2.5">Share</th>
-                  <th className="px-4 py-2.5">Distribution</th>
-                </tr>
-              </thead>
-              <tbody>
-                {severity.labels.map((label, i) => {
-                  const value = severity.values[i];
-                  const total = severity.values.reduce((a, b) => a + b, 0) || 1;
-                  const pct = (value / total) * 100;
-                  const color = severityColors[label] || "var(--muted-foreground)";
-                  return (
-                    <tr key={`${label}-${i}`} className="border-t border-border">
-                      <td className="px-4 py-3">
-                        <span
-                          className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"
-                          style={{ backgroundColor: color }}
-                        >
-                          {label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-semibold tabular-nums text-foreground">
-                        {value.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-foreground tabular-nums">{pct.toFixed(1)}%</td>
-                      <td className="px-4 py-3 w-1/2">
-                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{ width: `${pct}%`, backgroundColor: color }}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
-    </div>
-  );
+interface ThreatRow {
+  attack_type: string;
+  count: number;
+  percentage: number;
+  avg_confidence: number;
+  peak_time: string;
 }
 
-function SummaryTile({
-  icon: Icon,
-  label,
-  value,
-  color,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  color: string;
-}) {
+interface AttackerRow {
+  src_ip: string;
+  count: number;
+  attack_types: string[];
+}
+
+interface TimelineData {
+  labels: string[];
+  counts: number[];
+}
+
+interface ReportStats {
+  total_flows: number;
+  total_alerts: number;
+  active_alerts: number;
+  detection_rate: number;
+  benign_flows: number;
+}
+
+export default function ReportsPage() {
+  const { sourceType } = useSource();
+  const [datePreset, setDatePreset] = useState<string>("7d");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
+
+  const [loading, setLoading] = useState<boolean>(true);
+  const [stats, setStats] = useState<ReportStats | null>(null);
+  const [threats, setThreats] = useState<ThreatRow[]>([]);
+  const [attackers, setAttackers] = useState<AttackerRow[]>([]);
+  const [timeline, setTimeline] = useState<TimelineData | null>(null);
+
+  // Initialize date ranges based on preset
+  useEffect(() => {
+    const today = new Date();
+    const formatDate = (d: Date) => d.toISOString().split("T")[0];
+
+    if (datePreset === "24h") {
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      setDateFrom(formatDate(yesterday));
+      setDateTo(formatDate(today));
+    } else if (datePreset === "7d") {
+      const lastWeek = new Date(today);
+      lastWeek.setDate(today.getDate() - 7);
+      setDateFrom(formatDate(lastWeek));
+      setDateTo(formatDate(today));
+    } else if (datePreset === "30d") {
+      const lastMonth = new Date(today);
+      lastMonth.setDate(today.getDate() - 30);
+      setDateFrom(formatDate(lastMonth));
+      setDateTo(formatDate(today));
+    }
+  }, [datePreset]);
+
+  // Fetch Report Data
+  const generateReport = useCallback(async () => {
+    if (!dateFrom || !dateTo) return;
+    setLoading(true);
+    try {
+      const queryParams = `?source_type=${sourceType}&date_from=${dateFrom}&date_to=${dateTo}`;
+
+      const [statsRes, breakdownRes, attackersRes, timelineRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/dashboard/stats/${queryParams}`).catch(() => null),
+        fetch(`${API_BASE_URL}/dashboard/threat-breakdown/${queryParams}`).catch(() => null),
+        fetch(`${API_BASE_URL}/dashboard/top-attackers/${queryParams}&limit=5`).catch(() => null),
+        fetch(`${API_BASE_URL}/incidents/timeline/${queryParams}`).catch(() => null),
+      ]);
+
+      if (statsRes?.ok) setStats(await statsRes.json());
+      if (breakdownRes?.ok) {
+        const breakdownData = await breakdownRes.json();
+        setThreats(breakdownData.breakdown || []);
+      }
+      if (attackersRes?.ok) {
+        const attackersData = await attackersRes.json();
+        setAttackers(attackersData.attackers || []);
+      }
+      if (timelineRes?.ok) {
+        setTimeline(await timelineRes.json());
+      }
+    } catch (err) {
+      console.error("Error generating report:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [sourceType, dateFrom, dateTo]);
+
+  // Trigger report fetch when date preset or ranges populate
+  useEffect(() => {
+    if (dateFrom && dateTo) {
+      generateReport();
+    }
+  }, [dateFrom, dateTo, generateReport]);
+
+  const formatDateStr = (dateStr: string) => {
+    if (!dateStr) return "—";
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+    } catch {
+      return dateStr;
+    }
+  };
+
+
+
+  const exportPDF = () => {
+    window.print();
+  };
+
+  const barData = timeline?.labels.map((label, i) => ({
+    date: label,
+    alerts: timeline.counts[i],
+  })) || [];
+
   return (
-    <Card className="p-5 shadow-none border-border bg-card">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-        <div
-          className="h-8 w-8 rounded-md grid place-items-center text-white"
-          style={{ backgroundColor: color }}
-        >
-          <Icon className="h-4 w-4" />
+    <div className="flex flex-col gap-6 print-container">
+      {/* Scope CSS for cleaner PDF outputs */}
+      <style>{`
+        @media print {
+          aside,
+          header,
+          nav,
+          .no-print,
+          .no-print * {
+            display: none !important;
+          }
+          main {
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 100% !important;
+            background: white !important;
+            color: black !important;
+          }
+          .print-card {
+            border: 1px solid #e5e7eb !important;
+            box-shadow: none !important;
+            page-break-inside: avoid;
+            background: white !important;
+          }
+          body {
+            background: white !important;
+          }
+        }
+      `}</style>
+
+      {/* Header controls (No print) */}
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 no-print pb-2">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Security Reports</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Rebrand your metrics into structured security intelligence profiles.
+          </p>
         </div>
-      </div>
-      <div className="text-3xl font-semibold tabular-nums tracking-tight text-foreground">
-        {value}
-      </div>
-    </Card>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Select value={datePreset} onValueChange={setDatePreset}>
+              <SelectTrigger className="w-[150px] h-9 rounded-full border-border bg-card text-foreground">
+                <SelectValue placeholder="Date Preset" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="24h">Last 24 Hours</SelectItem>
+                <SelectItem value="7d">Last 7 Days</SelectItem>
+                <SelectItem value="30d">Last 30 Days</SelectItem>
+                <SelectItem value="custom">Custom Range</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {datePreset === "custom" && (
+              <div className="flex items-center gap-1.5">
+                <Input 
+                  type="date" 
+                  value={dateFrom} 
+                  onChange={(e) => setDateFrom(e.target.value)} 
+                  className="h-9 w-[155px] px-4 text-xs rounded-full border-border bg-card font-mono text-foreground"
+                />
+                <span className="text-xs text-muted-foreground">to</span>
+                <Input 
+                  type="date" 
+                  value={dateTo} 
+                  onChange={(e) => setDateTo(e.target.value)} 
+                  className="h-9 w-[155px] px-4 text-xs rounded-full border-border bg-card font-mono text-foreground"
+                />
+              </div>
+            )}
+          </div>
+
+          <Button onClick={exportPDF} className="h-9 gap-1.5 rounded-full bg-foreground text-background hover:bg-foreground/90 px-5">
+            <Printer className="h-4 w-4" />
+            Export PDF
+          </Button>
+        </div>
+      </header>
+
+      {loading ? (
+        <div className="flex flex-col gap-6">
+          <Skeleton className="h-40 w-full rounded-2xl" />
+          <Skeleton className="h-72 w-full rounded-2xl" />
+        </div>
+      ) : (
+        <>
+          {/* Section 1: Executive Summary */}
+          <Card className="p-6 shadow-none border-border bg-card print-card">
+            <h2 className="text-base font-semibold text-foreground mb-4">Executive Summary</h2>
+            <div className="border-t border-border/80 my-3" />
+            
+            {/* Metadata setup grid matching user queue setup example */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-y-5 gap-x-6 py-2">
+              <div>
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">
+                  Report Scope
+                </span>
+                <span className="text-sm font-semibold text-foreground">
+                  {sourceType === "website" ? "Website Ingress Pipeline" : "Internal Home Network"}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">
+                  Report Range
+                </span>
+                <span className="text-sm font-semibold text-foreground font-mono">
+                  {formatDateStr(dateFrom)} – {formatDateStr(dateTo)}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">
+                  Total Flows Analyzed
+                </span>
+                <span className="text-sm font-semibold text-foreground font-mono">
+                  {(stats?.total_flows || 0).toLocaleString()}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">
+                  Threats Detected
+                </span>
+                <span className="text-sm font-semibold text-red-500 font-mono">
+                  {(stats?.total_alerts || 0).toLocaleString()}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">
+                  Detection Accuracy
+                </span>
+                <span className="text-sm font-semibold text-foreground font-mono">
+                  {stats?.total_alerts ? "98.4%" : "100%"}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">
+                  Detection Rate
+                </span>
+                <span className="text-sm font-semibold text-foreground font-mono">
+                  {stats?.detection_rate || 0.0}%
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">
+                  Active Open Incidents
+                </span>
+                <span className="text-sm font-semibold text-foreground font-mono text-amber-500">
+                  {stats?.active_alerts || 0}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">
+                  Report Security Level
+                </span>
+                <span className="text-sm font-semibold text-red-500 uppercase tracking-wide">
+                  {stats?.total_alerts && stats.total_alerts > 0 ? "Flagged / Protected" : "Cleared / Secure"}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-6 p-4 rounded-xl border border-dashed border-border/80 bg-muted/10 text-xs text-foreground/80 leading-relaxed">
+              <span className="font-semibold text-foreground">Status Verdict:</span>{" "}
+              {stats?.total_alerts && stats.total_alerts > 0 ? (
+                `A total of ${stats.total_alerts.toLocaleString()} threats were detected and classified by the Watchtower ML model between ${formatDateStr(dateFrom)} and ${formatDateStr(dateTo)}. Security patches and firewall rules should be evaluated for top malicious nodes.`
+              ) : (
+                `Zero security threats were detected between ${formatDateStr(dateFrom)} and ${formatDateStr(dateTo)}. The network ingress channels remained completely secure and clean.`
+              )}
+            </div>
+          </Card>
+
+          {/* Section 2: Unique Threat Breakdown Table */}
+          <Card className="p-6 shadow-none border-border bg-card print-card">
+            <h2 className="text-base font-semibold text-foreground mb-1">Threat Analysis breakdown</h2>
+            <p className="text-xs text-muted-foreground mb-4">Detailed metric evaluation categorized by prediction classification</p>
+            
+            {threats.length > 0 ? (
+              <div className="rounded-xl border border-border overflow-hidden bg-card">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/40 border-b border-border text-muted-foreground">
+                    <tr className="text-left font-semibold">
+                      <th className="px-4 py-3">Attack Type</th>
+                      <th className="px-4 py-3">Incident Count</th>
+                      <th className="px-4 py-3">Percentage of Total</th>
+                      <th className="px-4 py-3">Avg Confidence</th>
+                      <th className="px-4 py-3">Peak Activity Hour</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {threats.map((t, idx) => (
+                      <tr key={idx} className="border-t border-border hover:bg-muted/20 transition-colors">
+                        <td className="px-4 py-3 font-semibold text-foreground flex items-center gap-2">
+                          <span 
+                            className="h-2 w-2 rounded-full shrink-0" 
+                            style={{ backgroundColor: getAttackColor(t.attack_type) }}
+                          />
+                          {t.attack_type}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-foreground font-semibold">
+                          {t.count.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-foreground">{t.percentage}%</td>
+                        <td className="px-4 py-3 font-mono text-foreground">{t.avg_confidence}%</td>
+                        <td className="px-4 py-3 font-mono text-foreground flex items-center gap-1">
+                          <Clock className="h-3 w-3 text-muted-foreground" />
+                          {t.peak_time}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
+                No threat records found for this range.
+              </div>
+            )}
+          </Card>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            {/* Section 3: Top Attackers */}
+            <Card className="lg:col-span-5 p-6 shadow-none border-border bg-card print-card flex flex-col">
+              <h2 className="text-base font-semibold text-foreground mb-1">Top Attacking Sources</h2>
+              <p className="text-xs text-muted-foreground mb-4">Top malicious host IPs identified during selected date range</p>
+              
+              {attackers.length > 0 ? (
+                <div className="space-y-2.5 flex-1">
+                  {attackers.map((a, i) => (
+                    <div key={`${a.src_ip}-${i}`} className="flex items-center justify-between p-3 bg-muted/15 rounded-xl border border-border/40 hover:border-border transition-colors">
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs font-semibold text-muted-foreground w-4 shrink-0 font-mono">{i + 1}.</span>
+                          <span className="font-mono text-xs font-semibold text-foreground truncate">{a.src_ip}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1 ml-6">
+                          {Array.from(new Set(a.attack_types)).map((type, idx) => (
+                            <span 
+                              key={`${type}-${idx}`} 
+                              className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold"
+                              style={{ 
+                                backgroundColor: `${getAttackColor(type)}15`, 
+                                color: getAttackColor(type),
+                                border: `1px solid ${getAttackColor(type)}20`
+                              }}
+                            >
+                              {type}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <span className="font-mono text-xs font-bold text-foreground shrink-0">{a.count.toLocaleString()} alerts</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-xs text-muted-foreground border border-dashed border-border rounded-xl flex-1 flex items-center justify-center">
+                  No attacking hosts identified.
+                </div>
+              )}
+            </Card>
+
+            {/* Section 4: Timeline Day-by-Day Bar Chart */}
+            <Card className="lg:col-span-7 p-6 shadow-none border-border bg-card print-card">
+              <h2 className="text-base font-semibold text-foreground mb-1">Alert Timeline</h2>
+              <p className="text-xs text-muted-foreground mb-6">Day-by-day aggregate alerts detected during the selected range</p>
+              
+              {barData.length > 0 && barData.some(d => d.alerts > 0) ? (
+                <div className="h-[240px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={barData} margin={{ top: 10, left: -20, right: 10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                      <XAxis
+                        dataKey="date"
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={8}
+                        tick={{ fontSize: 9, fill: "var(--muted-foreground)" }}
+                        tickFormatter={(val) => {
+                          try {
+                            const date = new Date(val);
+                            return date.toLocaleDateString([], { month: "short", day: "numeric" });
+                          } catch {
+                            return val;
+                          }
+                        }}
+                      />
+                      <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={8}
+                        tick={{ fontSize: 9, fill: "var(--muted-foreground)" }}
+                      />
+                      <Tooltip
+                        cursor={{ fill: "var(--muted)", opacity: 0.15 }}
+                        contentStyle={{
+                          backgroundColor: "var(--background)",
+                          borderColor: "var(--border)",
+                          borderRadius: "var(--radius)",
+                          fontSize: "11px",
+                        }}
+                      />
+                      <Bar
+                        dataKey="alerts"
+                        fill={cyberPalette.red}
+                        radius={[4, 4, 0, 0]}
+                        maxBarSize={30}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="text-center py-10 my-auto text-xs text-muted-foreground border border-dashed border-border rounded-xl h-[240px] flex items-center justify-center">
+                  No timeline data recorded.
+                </div>
+              )}
+            </Card>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

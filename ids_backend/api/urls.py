@@ -5,6 +5,7 @@ urlpatterns = [
     path('flows/ingest/', views.FlowIngestView.as_view()),
     path('scan/reset/', views.ScanResetView.as_view()),
     path('dashboard/stats/', views.DashboardStatsView.as_view()),
+    path('dashboard/threat-breakdown/', views.ThreatBreakdownView.as_view()),
     path('dashboard/attack-types/', views.AttackTypesView.as_view()),
     path('dashboard/severity/', views.SeverityDistributionView.as_view()),
     path('dashboard/traffic-volume/', views.TrafficVolumeView.as_view()),

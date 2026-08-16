@@ -42,7 +42,7 @@ const integrations = [
 
 const lab = [
   { title: "Simulation",   url: "/simulation", icon: PlaySquare },
-  { title: "Benchmarking", url: "#", icon: BarChart3 },
+  { title: "Benchmarking", url: "/benchmarking", icon: BarChart3 },
 ];
 
 const AppSidebar = () => {
