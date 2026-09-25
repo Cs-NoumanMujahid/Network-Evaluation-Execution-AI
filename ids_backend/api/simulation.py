@@ -15,14 +15,33 @@ process_lock = threading.Lock()
 
 def start_attack_process(attack_type):
     global current_process
-    command = ATTACK_COMMANDS.get(attack_type)
+    raw = str(attack_type or '').lower().replace(' ', '').replace('_', '').replace('-', '')
+    if 'portscan' in raw or 'nmap' in raw:
+        clean_key = 'portscan'
+    elif 'sql' in raw:
+        clean_key = 'sqli'
+    elif 'brute' in raw:
+        clean_key = 'bruteforce'
+    elif 'dos' in raw or 'hping' in raw:
+        clean_key = 'dos'
+    elif 'xss' in raw:
+        clean_key = 'xss'
+    else:
+        clean_key = raw
+
+    command = ATTACK_COMMANDS.get(clean_key)
     if not command:
+        print(f"Unknown attack type: '{attack_type}' (normalized: '{clean_key}')")
         return None
 
     with process_lock:
         if current_process and current_process.poll() is None:
             return current_process
-        current_process = subprocess.Popen(command)
+        try:
+            current_process = subprocess.Popen(command)
+            print(f"Started attack command: {command}")
+        except Exception as e:
+            print(f"Error launching attack process: {e}")
         return current_process
 
 
