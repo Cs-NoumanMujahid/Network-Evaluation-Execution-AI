@@ -50,15 +50,15 @@ services:
       echo 'Client 1 starting...';
       while true; do
         curl -s http://172.20.0.10/dvwa/ > /dev/null;
-        sleep \$((RANDOM % 8 + 3));
+        sleep $$((RANDOM % 8 + 3));
         curl -s http://172.20.0.10/dvwa/about.php > /dev/null;
-        sleep \$((RANDOM % 12 + 5));
+        sleep $$((RANDOM % 12 + 5));
         curl -s http://172.20.0.10/dvwa/instructions.php > /dev/null;
-        sleep \$((RANDOM % 6 + 2));
+        sleep $$((RANDOM % 6 + 2));
         curl -s http://172.20.0.10/dvwa/setup.php > /dev/null;
-        sleep \$((RANDOM % 15 + 8));
+        sleep $$((RANDOM % 15 + 8));
         curl -s http://172.20.0.10/dvwa/phpinfo.php > /dev/null;
-        sleep \$((RANDOM % 10 + 4));
+        sleep $$((RANDOM % 10 + 4));
       done
       "
 
@@ -76,15 +76,15 @@ services:
       sleep 7;
       while true; do
         curl -s http://172.20.0.10/dvwa/security.php > /dev/null;
-        sleep \$((RANDOM % 20 + 10));
+        sleep $$((RANDOM % 20 + 10));
         curl -s http://172.20.0.10/dvwa/about.php > /dev/null;
-        sleep \$((RANDOM % 25 + 15));
+        sleep $$((RANDOM % 25 + 15));
         curl -s http://172.20.0.10/dvwa/ > /dev/null;
-        sleep \$((RANDOM % 10 + 5));
+        sleep $$((RANDOM % 10 + 5));
         curl -s http://172.20.0.10/dvwa/instructions.php > /dev/null;
-        sleep \$((RANDOM % 30 + 10));
+        sleep $$((RANDOM % 30 + 10));
         curl -s http://172.20.0.10/dvwa/phpinfo.php > /dev/null;
-        sleep \$((RANDOM % 18 + 8));
+        sleep $$((RANDOM % 18 + 8));
       done
       "
 
@@ -102,15 +102,15 @@ services:
       sleep 13;
       while true; do
         curl -s http://172.20.0.10/dvwa/phpinfo.php > /dev/null;
-        sleep \$((RANDOM % 35 + 20));
+        sleep $$((RANDOM % 35 + 20));
         curl -s http://172.20.0.10/dvwa/ > /dev/null;
-        sleep \$((RANDOM % 12 + 6));
+        sleep $$((RANDOM % 12 + 6));
         curl -s http://172.20.0.10/dvwa/about.php > /dev/null;
-        sleep \$((RANDOM % 18 + 8));
+        sleep $$((RANDOM % 18 + 8));
         curl -s http://172.20.0.10/dvwa/setup.php > /dev/null;
-        sleep \$((RANDOM % 40 + 20));
+        sleep $$((RANDOM % 40 + 20));
         curl -s http://172.20.0.10/dvwa/instructions.php > /dev/null;
-        sleep \$((RANDOM % 15 + 5));
+        sleep $$((RANDOM % 15 + 5));
       done
       "
 
