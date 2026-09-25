@@ -40,9 +40,10 @@ while true; do
     status=$?
 
     if [ "$status" -eq 0 ]; then
-      # CICFlowMeter always writes base.csv — rename atomically
-      if [ -f "$final_csv" ]; then
-        mv "$final_csv" "$tmp_csv" && mv "$tmp_csv" "$final_csv"
+      # CICFlowMeter generates ${base}.pcap_Flow.csv or ${base}_Flow.csv
+      generated_csv=$(ls "$FLOW_DIR"/${base}*.csv 2>/dev/null | grep -v "\.tmp$" | head -n 1)
+      if [ -n "$generated_csv" ] && [ -f "$generated_csv" ]; then
+        mv "$generated_csv" "$final_csv"
         echo "SUCCESS: Completed $final_csv"
       else
         echo "ERROR: Expected output missing for $f"
