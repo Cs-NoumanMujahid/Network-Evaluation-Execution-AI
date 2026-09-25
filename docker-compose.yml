@@ -184,7 +184,7 @@ services:
       - KAFKA_BROKER=kafka:29092
       - KAFKA_TOPIC=flows
       - CONFIDENCE_THRESHOLD=0.80
-      - BACKEND_URL=http://host.docker.internal:8000
+      - BACKEND_URL=http://172.20.0.1
       - SOURCE_TYPE=website
       - REGISTERED_ID=1
       - HEALTH_INTERVAL=60
@@ -209,7 +209,7 @@ services:
       - KAFKA_BROKER=kafka:29092
       - KAFKA_TOPIC=flows_iot
       - CONFIDENCE_THRESHOLD=0.80
-      - BACKEND_URL=http://host.docker.internal:8000
+      - BACKEND_URL=http://172.20.0.1
       - SOURCE_TYPE=home_network
       - REGISTERED_ID=1
       - HEALTH_INTERVAL=60
