@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import AppSidebar from "@/components/AppSidebar";
 import Navbar from "@/components/Navbar";
@@ -9,18 +8,15 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "sonner";
 import { cookies } from "next/headers";
 
-const jakarta = Plus_Jakarta_Sans({
+const jakarta = {
   variable: "--font-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-});
+  className: "",
+};
 
-const instrument = Instrument_Serif({
+const instrument = {
   variable: "--font-display",
-  subsets: ["latin"],
-  weight: ["400"],
-  style: ["normal", "italic"],
-});
+  className: "",
+};
 
 export const metadata: Metadata = {
   title: "NEXA Watchtower | IDS Dashboard",
