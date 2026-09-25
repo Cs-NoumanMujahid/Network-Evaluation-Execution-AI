@@ -1,19 +1,21 @@
+import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+# Load environment variables from .env file
+load_dotenv(dotenv_path=BASE_DIR / '.env')
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-ul@y)e0a(*%0+u2ptv(get@bqm=^4a1nhp1^ov%p*)xje%j(^x'
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-ul@y)e0a(*%0+u2ptv(get@bqm=^4a1nhp1^ov%p*)xje%j(^x')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['host.docker.internal', 'localhost', '127.0.0.1', '*']
+env_hosts = os.getenv('DJANGO_ALLOWED_HOSTS')
+ALLOWED_HOSTS = env_hosts.split(',') if env_hosts else ['host.docker.internal', 'localhost', '127.0.0.1', '*']
 
 
 # Application definition
@@ -73,7 +75,16 @@ DATABASES = {
     }
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
+env_cors = os.getenv('DJANGO_CORS_ALLOWED_ORIGINS')
+if env_cors:
+    CORS_ALLOWED_ORIGINS = env_cors.split(',')
+    CORS_ALLOW_ALL_ORIGINS = False
+else:
+    CORS_ALLOW_ALL_ORIGINS = True
+
+env_csrf = os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS')
+if env_csrf:
+    CSRF_TRUSTED_ORIGINS = env_csrf.split(',')
 
 
 # Password validation

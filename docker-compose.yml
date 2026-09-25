@@ -5,7 +5,7 @@ services:
     build: .
     container_name: dvwa-web
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     environment:
       - DEFAULT_SECURITY_LEVEL=low
     depends_on:
@@ -147,7 +147,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
     ports:
-      - "9092:9092"
+      - "127.0.0.1:9092:9092"
     volumes:
       - kafka_data:/var/lib/kafka/data
     networks:
@@ -181,13 +181,15 @@ services:
     build: ./ml_consumer
     container_name: ml-consumer
     environment:
-      KAFKA_BROKER: kafka:29092
-      KAFKA_TOPIC: flows
-      CONFIDENCE_THRESHOLD: "0.80"
-      BACKEND_URL: "http://host.docker.internal:8000"
-      SOURCE_TYPE: "website"
-      REGISTERED_ID: "1"
-      HEALTH_INTERVAL: "60"
+      - KAFKA_BROKER=kafka:29092
+      - KAFKA_TOPIC=flows
+      - CONFIDENCE_THRESHOLD=0.80
+      - BACKEND_URL=${NEXA_BACKEND_URL:-http://host.docker.internal:8000}
+      - SOURCE_TYPE=website
+      - REGISTERED_ID=1
+      - HEALTH_INTERVAL=60
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./ml_consumer/model:/app/model:ro
     depends_on:
@@ -204,13 +206,15 @@ services:
     build: ./ml_consumer
     container_name: ml-consumer-iot
     environment:
-      KAFKA_BROKER: kafka:29092
-      KAFKA_TOPIC: flows_iot
-      CONFIDENCE_THRESHOLD: "0.80"
-      BACKEND_URL: "http://host.docker.internal:8000"
-      SOURCE_TYPE: "home_network"
-      REGISTERED_ID: "1"
-      HEALTH_INTERVAL: "60"
+      - KAFKA_BROKER=kafka:29092
+      - KAFKA_TOPIC=flows_iot
+      - CONFIDENCE_THRESHOLD=0.80
+      - BACKEND_URL=${NEXA_BACKEND_URL:-http://host.docker.internal:8000}
+      - SOURCE_TYPE=home_network
+      - REGISTERED_ID=1
+      - HEALTH_INTERVAL=60
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./ml_consumer/model:/app/model:ro
     depends_on:

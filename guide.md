@@ -82,7 +82,7 @@ The backend handles alert ingestion and provides the WebSocket feed for the dash
    ```
 3. **Run the Server**:
    ```powershell
-   python3 -m daphne ids_backend.asgi:application
+   ./venv/bin/python3 -m daphne -b 0.0.0.0 -p 8000 ids_backend.asgi:application
    ```
 
 ---

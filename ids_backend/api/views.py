@@ -785,6 +785,8 @@ class IPHistoryView(APIView):
 
 
 import subprocess
+import ipaddress
+import os
 
 class BlockIPView(APIView):
     def post(self, request):
@@ -792,18 +794,32 @@ class BlockIPView(APIView):
         if not ip:
             return Response({'error': 'IP is required'}, status=status.HTTP_400_BAD_REQUEST)
         
+        # Verify IP format to prevent command injection
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            return Response({'error': 'Invalid IP address'}, status=status.HTTP_400_BAD_REQUEST)
+        
         from .models import BlockedIP
         obj, created = BlockedIP.objects.get_or_create(ip=ip)
         
-        # Execute real network drop inside netshoot sniffer container sharing dvwa's namespace
+        # Execute network drop
         if created:
+            firewall_mode = os.getenv("NEXA_FIREWALL_MODE", "docker")
             try:
-                subprocess.run([
-                    "docker", "exec", "traffic-sniffer",
-                    "iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"
-                ], timeout=3)
+                if firewall_mode == "host":
+                    # Host-level block (DOCKER-USER chain)
+                    subprocess.run([
+                        "sudo", "/sbin/iptables", "-I", "DOCKER-USER", "-s", ip, "-j", "DROP"
+                    ], check=True, timeout=3)
+                else:
+                    # Docker namespace fallback (local dev)
+                    subprocess.run([
+                        "docker", "exec", "traffic-sniffer",
+                        "iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"
+                    ], check=True, timeout=3)
             except Exception as e:
-                print(f"Warning: Failed to execute iptables block in container: {e}")
+                print(f"Warning: Failed to execute iptables block: {e}")
             
         # Stop attacker tool running inside kali container
         try:
@@ -827,17 +843,28 @@ class UnblockIPView(APIView):
         if not ip:
             return Response({'error': 'IP is required'}, status=status.HTTP_400_BAD_REQUEST)
             
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            return Response({'error': 'Invalid IP address'}, status=status.HTTP_400_BAD_REQUEST)
+
         from .models import BlockedIP
         BlockedIP.objects.filter(ip=ip).delete()
         
-        # Remove real network drop rule
+        # Remove network drop rule
+        firewall_mode = os.getenv("NEXA_FIREWALL_MODE", "docker")
         try:
-            subprocess.run([
-                "docker", "exec", "traffic-sniffer",
-                "iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"
-            ], timeout=3)
+            if firewall_mode == "host":
+                subprocess.run([
+                    "sudo", "/sbin/iptables", "-D", "DOCKER-USER", "-s", ip, "-j", "DROP"
+                ], check=True, timeout=3)
+            else:
+                subprocess.run([
+                    "docker", "exec", "traffic-sniffer",
+                    "iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"
+                ], check=True, timeout=3)
         except Exception as e:
-            print(f"Warning: Failed to execute iptables delete in container: {e}")
+            print(f"Warning: Failed to execute iptables delete: {e}")
             
         return Response({'status': 'ok', 'ip': ip})
 
@@ -848,16 +875,28 @@ class WhitelistIPView(APIView):
         if not ip:
             return Response({'error': 'IP is required'}, status=status.HTTP_400_BAD_REQUEST)
             
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            return Response({'error': 'Invalid IP address'}, status=status.HTTP_400_BAD_REQUEST)
+
         from .models import WhitelistedIP, BlockedIP
         obj, created = WhitelistedIP.objects.get_or_create(ip=ip)
         
         # Proactively unblock IP if it was blocked
         BlockedIP.objects.filter(ip=ip).delete()
+        
+        firewall_mode = os.getenv("NEXA_FIREWALL_MODE", "docker")
         try:
-            subprocess.run([
-                "docker", "exec", "traffic-sniffer",
-                "iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"
-            ], timeout=3)
+            if firewall_mode == "host":
+                subprocess.run([
+                    "sudo", "/sbin/iptables", "-D", "DOCKER-USER", "-s", ip, "-j", "DROP"
+                ], timeout=3)
+            else:
+                subprocess.run([
+                    "docker", "exec", "traffic-sniffer",
+                    "iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"
+                ], timeout=3)
         except Exception as e:
             pass
             
@@ -872,6 +911,11 @@ class WhitelistIPView(APIView):
         if not ip:
             return Response({'error': 'IP is required'}, status=status.HTTP_400_BAD_REQUEST)
             
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            return Response({'error': 'Invalid IP address'}, status=status.HTTP_400_BAD_REQUEST)
+
         from .models import WhitelistedIP
         WhitelistedIP.objects.filter(ip=ip).delete()
         return Response({'status': 'ok', 'ip': ip})
