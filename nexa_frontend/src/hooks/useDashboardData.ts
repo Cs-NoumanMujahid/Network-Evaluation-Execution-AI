@@ -1,8 +1,35 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSource } from "@/components/providers/SourceContext";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api";
-const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8000/ws/dashboard/";
+const getApiBaseUrl = () => {
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
+    return process.env.NEXT_PUBLIC_API_BASE_URL;
+  }
+  if (typeof window !== "undefined") {
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+      return "http://localhost:8000/api";
+    }
+    return `${window.location.protocol}//${window.location.host}/api`;
+  }
+  return "http://localhost:8000/api";
+};
+
+const getWsBaseUrl = () => {
+  if (process.env.NEXT_PUBLIC_WS_BASE_URL) {
+    return process.env.NEXT_PUBLIC_WS_BASE_URL;
+  }
+  if (typeof window !== "undefined") {
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+      return "ws://localhost:8000/ws/dashboard/";
+    }
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${wsProtocol}//${window.location.host}/ws/dashboard/`;
+  }
+  return "ws://localhost:8000/ws/dashboard/";
+};
+
+const API_BASE_URL = getApiBaseUrl();
+const WS_BASE_URL = getWsBaseUrl();
 
 interface DashboardStats {
   total_flows: number;

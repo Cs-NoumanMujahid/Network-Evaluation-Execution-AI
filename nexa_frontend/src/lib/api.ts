@@ -1,8 +1,20 @@
 // Centralised API helpers. The dashboard polling hook uses its own fetch logic;
 // these helpers are for on-demand, page-specific data needs.
 
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api";
+export const getApiBaseUrl = () => {
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
+    return process.env.NEXT_PUBLIC_API_BASE_URL;
+  }
+  if (typeof window !== "undefined") {
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+      return "http://localhost:8000/api";
+    }
+    return `${window.location.protocol}//${window.location.host}/api`;
+  }
+  return "http://localhost:8000/api";
+};
+
+export const API_BASE_URL = getApiBaseUrl();
 
 export interface AlertResultLite {
   id: number | string;
