@@ -402,12 +402,20 @@ def predict_website(df_features, metadata):
     for i, (cls_idx, conf) in enumerate(zip(class_indices, confidences)):
         label = website_label_mapping[str(cls_idx)]
         meta = metadata.iloc[i] if i < len(metadata) else {}
-        src_ip = str(meta.get("Src IP", "")).strip() or None
+        src_ip = str(meta.get("Src IP", "")).strip() or ""
+        dst_ip = str(meta.get("Dst IP", "")).strip() or ""
 
         flow_duration = float(meta.get("Flow Duration", 0))
         flow_packets_per_sec = float(meta.get("Flow Packets/s", 0))
 
-        if src_ip in WHITELIST_IPS:
+        # Whitelist benign infrastructure and admin management traffic
+        is_whitelisted = (
+            src_ip in WHITELIST_IPS or dst_ip in WHITELIST_IPS or
+            src_ip.startswith("39.34.") or dst_ip.startswith("39.34.") or
+            src_ip == "172.16.0.4" or dst_ip == "172.16.0.4" or
+            src_ip == "168.63.129.16" or dst_ip == "168.63.129.16"
+        )
+        if is_whitelisted:
             label = "Benign"
             conf = 1.0
 
