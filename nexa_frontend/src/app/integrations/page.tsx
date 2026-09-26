@@ -1,32 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Download, FileText, Database, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { API_BASE_URL } from "@/lib/api";
 
 export default function IntegrationsPage() {
   // SIEM Integration states
-  const [esUrl, setEsUrl] = useState("");
-  const [indexName, setIndexName] = useState("");
+  const [esUrl, setEsUrl] = useState("http://localhost:9200");
+  const [indexName, setIndexName] = useState("nexa-flows");
   const [siemStatus, setSiemStatus] = useState<"not_configured" | "connected">("not_configured");
+  const [lastSynced, setLastSynced] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // Webhook states
-  const [endpointUrl, setEndpointUrl] = useState("");
-  const [secretKey, setSecretKey] = useState("");
-  const [triggerOn, setTriggerOn] = useState("all");
-  const [webhookSaved, setWebhookSaved] = useState(false);
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/siem/config/`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.es_url) setEsUrl(data.es_url);
+        if (data.index_name) setIndexName(data.index_name);
+        if (data.is_connected) setSiemStatus("connected");
+        if (data.last_synced) setLastSynced(data.last_synced);
+      })
+      .catch((err) => console.error("Error fetching SIEM config:", err));
+  }, []);
 
-  const handleConnectSIEM = () => {
+  const handleConnectSIEM = async () => {
     if (!esUrl) {
       toast.error("Elasticsearch URL is required.");
       return;
@@ -35,23 +37,33 @@ export default function IntegrationsPage() {
       toast.error("Index name is required.");
       return;
     }
-    setSiemStatus("connected");
-    toast.success("SIEM connected successfully. Alerts will forward automatically.");
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/siem/config/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ es_url: esUrl, index_name: indexName }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSiemStatus("connected");
+        setLastSynced(data.last_synced);
+        toast.success("SIEM connected successfully. Telemetry forwarding active.");
+      } else {
+        toast.error("Failed to save SIEM configuration.");
+      }
+    } catch (err) {
+      toast.error("Connection failed.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSaveWebhook = () => {
-    if (!endpointUrl) {
-      toast.error("Endpoint URL is required.");
-      return;
-    }
-    if (!secretKey) {
-      toast.error("Secret key is required.");
-      return;
-    }
-    setWebhookSaved(true);
-    toast.success("Webhook saved. Payloads will fire on the selected trigger.");
-    setTimeout(() => setWebhookSaved(false), 3000);
+  const handleDownloadExport = (format: "json" | "syslog") => {
+    window.open(`${API_BASE_URL}/siem/export/?format=${format}&limit=500`, "_blank");
+    toast.success(`Exporting alerts in ${format.toUpperCase()} format...`);
   };
+
 
   return (
     <div className="flex flex-col gap-6 w-full">
@@ -129,75 +141,59 @@ export default function IntegrationsPage() {
           </div>
         </Card>
 
-        {/* Webhook Card */}
+        {/* SIEM Telemetry & Log Export Card */}
         <Card className="p-6 bg-card border-border shadow-none flex flex-col gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-foreground">Webhook</h2>
+            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Database className="h-5 w-5 text-muted-foreground" />
+              SIEM Log & Telemetry Export
+            </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Send alert payloads to external API endpoints.
+              Export classified threat alerts and flow telemetry in standard SIEM formats for ingestion into Splunk, Elastic, QRadar, or Wazuh.
             </p>
           </div>
           <div className="h-px bg-border w-full" />
 
-          <div className="flex flex-col gap-3.5">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Endpoint URL
-              </label>
-              <Input
-                type="text"
-                placeholder="https://api.mycompany.com/webhook"
-                value={endpointUrl}
-                onChange={(e) => setEndpointUrl(e.target.value)}
-                className="h-9 rounded-xl border-border focus-visible:ring-ring bg-background"
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Secret Key
-              </label>
-              <Input
-                type="password"
-                placeholder="••••••••••••••••"
-                value={secretKey}
-                onChange={(e) => setSecretKey(e.target.value)}
-                className="h-9 rounded-xl border-border focus-visible:ring-ring bg-background"
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Trigger on
-              </label>
-              <Select value={triggerOn} onValueChange={setTriggerOn}>
-                <SelectTrigger className="h-9 rounded-xl border-border focus:ring-ring bg-background text-xs">
-                  <SelectValue placeholder="Select trigger event" />
-                </SelectTrigger>
-                <SelectContent className="border-border rounded-xl">
-                  <SelectItem value="all">All Alerts</SelectItem>
-                  <SelectItem value="critical">Critical Alerts Only</SelectItem>
-                  <SelectItem value="incidents">Incidents Only</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center justify-between mt-2 pt-2">
-              <div className="text-xs text-muted-foreground">
-                {webhookSaved && (
-                  <span className="flex items-center gap-1 text-emerald-500 font-medium animate-in fade-in duration-300">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Saved successfully
-                  </span>
-                )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 rounded-xl border border-border/80 bg-muted/20 flex flex-col justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 font-semibold text-sm text-foreground">
+                  <FileText className="h-4 w-4 text-emerald-500" />
+                  Elastic Common Schema (JSON)
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Structured JSON adhering to the Elastic ECS specification. Compatible with Elasticsearch, Logstash, and Splunk HEC.
+                </p>
               </div>
               <Button
-                onClick={handleSaveWebhook}
-                disabled={!endpointUrl || !secretKey}
+                variant="outline"
                 size="sm"
-                className="rounded-full h-8 px-4 font-medium text-xs bg-foreground text-background hover:bg-foreground/90 disabled:opacity-50"
+                onClick={() => handleDownloadExport("json")}
+                className="rounded-full h-8 text-xs font-medium gap-1.5 w-fit border-border hover:bg-muted"
               >
-                Save
+                <Download className="h-3.5 w-3.5" />
+                Export JSON (ECS)
+              </Button>
+            </div>
+
+            <div className="p-4 rounded-xl border border-border/80 bg-muted/20 flex flex-col justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 font-semibold text-sm text-foreground">
+                  <FileText className="h-4 w-4 text-blue-500" />
+                  Common Event Format (CEF / Syslog)
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Standard RFC 5424 CEF syslog format. Compatible with ArcSight, AlienVault, Wazuh, and generic syslog daemons.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleDownloadExport("syslog")}
+                className="rounded-full h-8 text-xs font-medium gap-1.5 w-fit border-border hover:bg-muted"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export Syslog (CEF)
               </Button>
             </div>
           </div>
@@ -206,3 +202,4 @@ export default function IntegrationsPage() {
     </div>
   );
 }
+

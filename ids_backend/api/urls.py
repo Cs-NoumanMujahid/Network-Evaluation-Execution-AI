@@ -34,4 +34,7 @@ urlpatterns = [
     path('block/', views.BlockIPView.as_view()),
     path('unblock/', views.UnblockIPView.as_view()),
     path('whitelist/', views.WhitelistIPView.as_view()),
+    path('siem/config/', views.SiemConfigView.as_view()),
+    path('siem/export/', views.SiemExportView.as_view()),
 ]
+

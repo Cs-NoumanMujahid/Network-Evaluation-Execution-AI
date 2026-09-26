@@ -164,3 +164,16 @@ class WhitelistedIP(models.Model):
 
     def __str__(self):
         return self.ip
+
+
+class SiemConfig(models.Model):
+    es_url = models.CharField(max_length=255, default='http://localhost:9200')
+    index_name = models.CharField(max_length=100, default='nexa-flows')
+    is_connected = models.BooleanField(default=False)
+    last_synced = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.es_url}/{self.index_name} (Connected: {self.is_connected})"
+

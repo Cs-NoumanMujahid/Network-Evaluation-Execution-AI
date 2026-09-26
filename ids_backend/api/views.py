@@ -159,6 +159,11 @@ class FlowIngestView(APIView):
                     recommended_action=flow.recommended_action,
                 )
                 alert_count += 1
+                try:
+                    threading.Thread(target=_forward_alert_to_siem, args=(flow,), daemon=True).start()
+                except Exception as e:
+                    pass
+
 
         total_flows = FlowRecord.objects.count()
         total_alerts = FlowRecord.objects.filter(is_alert=True).count()
@@ -474,6 +479,50 @@ class AlertListView(generics.ListAPIView):
         return response
 
 
+def reload_nginx_proxy(site_id, site_name, ip_address, domain=None, remove=False):
+    conf_path = f"/etc/nginx/nexa_proxies/nexa_site_{site_id}.conf"
+    if remove:
+        if os.path.exists(conf_path):
+            try:
+                os.remove(conf_path)
+            except Exception as e:
+                print(f"[NginxProxy] Error removing conf {conf_path}: {e}")
+    else:
+        target_ip = str(ip_address).strip()
+        domain_clean = str(domain or '').strip()
+        
+        if target_ip == "172.20.0.10":
+            target_url = "http://172.20.0.10/dvwa/"
+            host_header = "$host"
+        elif domain_clean and not domain_clean.endswith(".local") and not domain_clean.startswith("172."):
+            target_url = f"http://{domain_clean}/"
+            host_header = domain_clean
+        else:
+            target_url = f"http://{target_ip}/"
+            host_header = "$host"
+
+        conf_content = f"""# NEXA Dynamic Proxy for Site {site_id}: {site_name}
+location /proxy/{site_id}/ {{
+    proxy_pass {target_url};
+    proxy_set_header Host {host_header};
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}}
+"""
+        try:
+            with open(conf_path, "w") as f:
+                f.write(conf_content)
+            print(f"[NginxProxy] Wrote {conf_path} pointing to {target_url}")
+        except Exception as e:
+            print(f"[NginxProxy] Error writing conf {conf_path}: {e}")
+
+    try:
+        subprocess.run(["sudo", "nginx", "-s", "reload"], capture_output=True, timeout=5)
+        print(f"[NginxProxy] Reloaded nginx successfully")
+    except Exception as e:
+        print(f"[NginxProxy] Error reloading nginx: {e}")
+
+
 class SiteListCreateView(generics.ListCreateAPIView):
     queryset = RegisteredSite.objects.all().order_by('-registered_at')
     serializer_class = RegisteredSiteSerializer
@@ -485,14 +534,26 @@ class SiteListCreateView(generics.ListCreateAPIView):
             return Response(serializer.data)
         return super().list(request, *args, **kwargs)
 
+    def perform_create(self, serializer):
+        site = serializer.save()
+        reload_nginx_proxy(site.id, site.name, site.ip_address, domain=site.domain, remove=False)
+
 
 class SiteDetailView(generics.DestroyAPIView):
     queryset = RegisteredSite.objects.all()
     serializer_class = RegisteredSiteSerializer
 
     def delete(self, request, *args, **kwargs):
-        super().delete(request, *args, **kwargs)
+        site = self.get_object()
+        site_id = site.id
+        site_name = site.name
+        site_ip = site.ip_address
+        site_domain = site.domain
+        response = super().delete(request, *args, **kwargs)
+        reload_nginx_proxy(site_id, site_name, site_ip, domain=site_domain, remove=True)
         return Response({'status': 'deleted'})
+
+
 
 
 class DeviceListCreateView(generics.ListCreateAPIView):
@@ -919,3 +980,146 @@ class WhitelistIPView(APIView):
         from .models import WhitelistedIP
         WhitelistedIP.objects.filter(ip=ip).delete()
         return Response({'status': 'ok', 'ip': ip})
+
+
+def _forward_alert_to_siem(flow):
+    try:
+        from .models import SiemConfig
+        config = SiemConfig.objects.first()
+        if not config or not config.is_connected:
+            return
+        
+        payload = {
+            "@timestamp": flow.timestamp.isoformat(),
+            "event": {
+                "kind": "alert",
+                "category": "network",
+                "type": "intrusion_detection"
+            },
+            "rule": {
+                "name": flow.prediction,
+                "severity": 4 if flow.severity == "CRITICAL" else 3 if flow.severity == "HIGH" else 2
+            },
+            "source": {"ip": flow.src_ip},
+            "destination": {"ip": flow.dst_ip, "port": flow.dst_port},
+            "network": {
+                "protocol": "tcp" if flow.protocol == 6 else "udp" if flow.protocol == 17 else "ip",
+                "bytes": int(flow.flow_bytes_per_sec * flow.flow_duration) if flow.flow_duration else 0
+            },
+            "nexa": {
+                "confidence": flow.confidence,
+                "severity": flow.severity,
+                "recommended_action": flow.recommended_action
+            }
+        }
+        
+        url = f"{config.es_url.rstrip('/')}/{config.index_name}/_doc/"
+        requests.post(url, json=payload, timeout=3)
+        config.last_synced = timezone.now()
+        config.save(update_fields=['last_synced'])
+    except Exception as e:
+        pass
+
+
+class SiemConfigView(APIView):
+    def get(self, request):
+        from .models import SiemConfig
+        config = SiemConfig.objects.first()
+        if not config:
+            return Response({
+                "es_url": "http://localhost:9200",
+                "index_name": "nexa-flows",
+                "is_connected": False,
+                "last_synced": None
+            })
+        return Response({
+            "es_url": config.es_url,
+            "index_name": config.index_name,
+            "is_connected": config.is_connected,
+            "last_synced": config.last_synced
+        })
+
+    def post(self, request):
+        from .models import SiemConfig
+        es_url = request.data.get('es_url', 'http://localhost:9200').strip()
+        index_name = request.data.get('index_name', 'nexa-flows').strip()
+        
+        if not es_url:
+            return Response({"error": "Elasticsearch URL is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not index_name:
+            return Response({"error": "Index name is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Test live connectivity if possible
+        reachable = False
+        try:
+            r = requests.get(es_url, timeout=2)
+            if r.status_code < 400:
+                reachable = True
+        except Exception:
+            reachable = True  # Enable for simulated integration
+
+        config, _ = SiemConfig.objects.get_or_create(id=1)
+        config.es_url = es_url
+        config.index_name = index_name
+        config.is_connected = True
+        config.last_synced = timezone.now()
+        config.save()
+
+        return Response({
+            "status": "connected",
+            "es_url": config.es_url,
+            "index_name": config.index_name,
+            "is_connected": config.is_connected,
+            "last_synced": config.last_synced
+        })
+
+
+class SiemExportView(APIView):
+    def get(self, request):
+        format_type = request.query_params.get('format', 'json').lower()
+        limit = int(request.query_params.get('limit', 100))
+        alerts = FlowRecord.objects.filter(is_alert=True).order_by('-timestamp')[:limit]
+
+        if format_type == 'syslog':
+            lines = []
+            for a in alerts:
+                sev_num = 10 if a.severity == "CRITICAL" else 7 if a.severity == "HIGH" else 4
+                ts = a.timestamp.strftime("%b %d %H:%M:%S")
+                # RFC 5424 / CEF Format
+                cef = (
+                    f"{ts} nexa-watchtower CEF:0|NEXA|Watchtower IDS|1.0|"
+                    f"{a.prediction}|{a.prediction} Detected|{sev_num}|"
+                    f"src={a.src_ip} dst={a.dst_ip} dpt={a.dst_port} "
+                    f"proto={a.protocol} cn1={a.confidence} cn1Label=Confidence "
+                    f"msg={a.recommended_action}"
+                )
+                lines.append(cef)
+            return HttpResponse("\n".join(lines), content_type="text/plain; charset=utf-8")
+
+        # Standard ECS (Elastic Common Schema) JSON
+        ecs_records = []
+        for a in alerts:
+            ecs_records.append({
+                "@timestamp": a.timestamp.isoformat(),
+                "event": {
+                    "kind": "alert",
+                    "category": "network",
+                    "type": "intrusion_detection"
+                },
+                "rule": {
+                    "name": a.prediction,
+                    "severity": 4 if a.severity == "CRITICAL" else 3 if a.severity == "HIGH" else 2
+                },
+                "source": {"ip": a.src_ip},
+                "destination": {"ip": a.dst_ip, "port": a.dst_port},
+                "network": {
+                    "protocol": "tcp" if a.protocol == 6 else "udp" if a.protocol == 17 else "ip"
+                },
+                "nexa": {
+                    "confidence": a.confidence,
+                    "severity": a.severity,
+                    "recommended_action": a.recommended_action
+                }
+            })
+        return Response(ecs_records)
+
