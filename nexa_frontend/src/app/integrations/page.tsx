@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, Download, FileText, Database, RefreshCw } from "lucide-react";
+import { Download, FileText, Database } from "lucide-react";
 import { toast } from "sonner";
 import { API_BASE_URL } from "@/lib/api";
 
@@ -52,12 +52,13 @@ export default function IntegrationsPage() {
       } else {
         toast.error("Failed to save SIEM configuration.");
       }
-    } catch (err) {
+    } catch (_err) {
       toast.error("Connection failed.");
     } finally {
       setLoading(false);
     }
   };
+
 
   const handleDownloadExport = (format: "json" | "syslog") => {
     window.open(`${API_BASE_URL}/siem/export/?export_format=${format}&limit=500`, "_blank");
@@ -121,6 +122,11 @@ export default function IntegrationsPage() {
                     <>
                       <span className="h-2 w-2 rounded-full bg-emerald-500" />
                       <span className="text-emerald-500">Connected</span>
+                      {lastSynced && (
+                        <span className="text-[10px] text-muted-foreground ml-1">
+                          (Synced: {new Date(lastSynced).toLocaleTimeString()})
+                        </span>
+                      )}
                     </>
                   ) : (
                     <>
@@ -132,12 +138,13 @@ export default function IntegrationsPage() {
               </div>
               <Button
                 onClick={handleConnectSIEM}
-                disabled={!esUrl || !indexName}
+                disabled={loading || !esUrl || !indexName}
                 size="sm"
                 className="rounded-full h-8 px-4 font-medium text-xs bg-foreground text-background hover:bg-foreground/90 disabled:opacity-50"
               >
-                Connect
+                {loading ? "Connecting..." : "Connect"}
               </Button>
+
             </div>
           </div>
         </Card>
