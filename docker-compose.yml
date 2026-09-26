@@ -27,9 +27,8 @@ services:
   sniffer:
     image: nicolaka/netshoot
     container_name: traffic-sniffer
-    network_mode: "container:dvwa-web"
-    depends_on:
-      - dvwa
+    networks:
+      - nexa-net
     cap_add:
       - NET_ADMIN
       - NET_RAW
