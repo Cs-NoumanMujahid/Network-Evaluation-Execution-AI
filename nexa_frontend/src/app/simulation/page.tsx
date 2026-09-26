@@ -131,7 +131,7 @@ export default function SimulationPage() {
       const res = await fetch(`${API_BASE_URL}/simulation/start/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attack_type: scenario }),
+        body: JSON.stringify({ attack_type: scenario, target: target }),
       });
       if (res.ok) {
         lastActionTimeRef.current = Date.now();

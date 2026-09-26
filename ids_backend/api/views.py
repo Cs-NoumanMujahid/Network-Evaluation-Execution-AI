@@ -178,6 +178,10 @@ class FlowIngestView(APIView):
             matched_site_id = site_ip_map.get(dst_ip) or site_ip_map.get(src_ip)
             if matched_site_id:
                 item['registered_id'] = matched_site_id
+            elif item.get('registered_id') and str(item['registered_id']).lower() not in ('none', 'null', ''):
+                pass
+            elif (src_ip and src_ip.startswith('172.20.')) or (dst_ip and dst_ip.startswith('172.20.')):
+                item['registered_id'] = '1'
             else:
                 item['registered_id'] = None
 
@@ -767,9 +771,10 @@ class HealthHistoryView(APIView):
 class SimulationStartView(APIView):
     def post(self, request):
         attack_type = request.data.get('attack_type')
+        target = request.data.get('target')
         session = SimulationSession.objects.create(attack_type=attack_type, status='running')
-        threading.Thread(target=start_attack_process, args=(attack_type,), daemon=True).start()
-        return Response({'status': 'started', 'session_id': session.id, 'attack_type': attack_type})
+        threading.Thread(target=start_attack_process, args=(attack_type, target), daemon=True).start()
+        return Response({'status': 'started', 'session_id': session.id, 'attack_type': attack_type, 'target': target})
 
 
 class SimulationStatusView(APIView):

@@ -1,6 +1,6 @@
 #!/bin/sh
 echo "[BRUTEFORCE-WEB] Starting..."
-TARGET="172.20.0.10"
+TARGET="${TARGET_HOST:-172.20.0.10}"
 END=$(($(date +%s) + 1200))
 
 cat > /tmp/users.txt << 'EOF'

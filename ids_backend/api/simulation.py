@@ -13,7 +13,7 @@ current_process = None
 process_lock = threading.Lock()
 
 
-def start_attack_process(attack_type):
+def start_attack_process(attack_type, target=None):
     global current_process
     raw = str(attack_type or '').lower().replace(' ', '').replace('_', '').replace('-', '')
     if 'portscan' in raw or 'nmap' in raw:
@@ -29,10 +29,15 @@ def start_attack_process(attack_type):
     else:
         clean_key = raw
 
-    command = ATTACK_COMMANDS.get(clean_key)
-    if not command:
+    base_command = ATTACK_COMMANDS.get(clean_key)
+    if not base_command:
         print(f"Unknown attack type: '{attack_type}' (normalized: '{clean_key}')")
         return None
+
+    if target:
+        command = ['docker', 'exec', '-e', f'TARGET_HOST={target}', 'kali-attacker', 'sh', base_command[-1]]
+    else:
+        command = base_command
 
     with process_lock:
         if current_process and current_process.poll() is None:
