@@ -13,15 +13,24 @@ export default function IntegrationsPage() {
   const [esUrl, setEsUrl] = useState("http://localhost:9200");
   const [indexName, setIndexName] = useState("nexa-flows");
   const [siemStatus, setSiemStatus] = useState<"not_configured" | "connected">("not_configured");
+  const [connectedUrl, setConnectedUrl] = useState("");
+  const [connectedIndex, setConnectedIndex] = useState("");
   const [lastSynced, setLastSynced] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState<"json" | "syslog" | null>(null);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/siem/config/`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.es_url) setEsUrl(data.es_url);
-        if (data.index_name) setIndexName(data.index_name);
+        if (data.es_url) {
+          setEsUrl(data.es_url);
+          setConnectedUrl(data.es_url);
+        }
+        if (data.index_name) {
+          setIndexName(data.index_name);
+          setConnectedIndex(data.index_name);
+        }
         if (data.is_connected) setSiemStatus("connected");
         if (data.last_synced) setLastSynced(data.last_synced);
       })
@@ -47,6 +56,8 @@ export default function IntegrationsPage() {
       if (res.ok) {
         const data = await res.json();
         setSiemStatus("connected");
+        setConnectedUrl(esUrl);
+        setConnectedIndex(indexName);
         setLastSynced(data.last_synced);
         toast.success("SIEM connected successfully. Telemetry forwarding active.");
       } else {
@@ -59,11 +70,58 @@ export default function IntegrationsPage() {
     }
   };
 
+  const isConnectedAndUnchanged =
+    siemStatus === "connected" &&
+    esUrl.trim() === connectedUrl.trim() &&
+    indexName.trim() === connectedIndex.trim();
 
+  const handleDownloadExport = async (format: "json" | "syslog") => {
+    setExporting(format);
+    try {
+      const res = await fetch(`${API_BASE_URL}/siem/export/?export_format=${format}&limit=500`);
+      if (!res.ok) {
+        toast.error("Failed to export SIEM telemetry.");
+        return;
+      }
 
-  const handleDownloadExport = (format: "json" | "syslog") => {
-    window.open(`${API_BASE_URL}/siem/export/?export_format=${format}&limit=500`, "_blank");
-    toast.success(`Exporting alerts in ${format.toUpperCase()} format...`);
+      if (format === "json") {
+        const data = await res.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          toast.info("No alerts found to export.");
+          return;
+        }
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `nexa_siem_alerts_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast.success(`Exported ${data.length} alert(s) in JSON (ECS) format.`);
+      } else {
+        const text = await res.text();
+        if (!text || text.trim().length === 0) {
+          toast.info("No alerts found to export.");
+          return;
+        }
+        const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `nexa_siem_alerts_${new Date().toISOString().slice(0, 10)}.log`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast.success("Exported alert(s) in CEF / Syslog format.");
+      }
+    } catch {
+      toast.error("Export request failed.");
+    } finally {
+      setExporting(null);
+    }
   };
 
 
@@ -139,11 +197,11 @@ export default function IntegrationsPage() {
               </div>
               <Button
                 onClick={handleConnectSIEM}
-                disabled={loading || !esUrl || !indexName}
+                disabled={loading || !esUrl || !indexName || isConnectedAndUnchanged}
                 size="sm"
                 className="rounded-full h-8 px-4 font-medium text-xs bg-foreground text-background hover:bg-foreground/90 disabled:opacity-50"
               >
-                {loading ? "Connecting..." : "Connect"}
+                {loading ? "Connecting..." : isConnectedAndUnchanged ? "Connected" : "Connect"}
               </Button>
 
             </div>
@@ -177,11 +235,12 @@ export default function IntegrationsPage() {
               <Button
                 variant="outline"
                 size="sm"
+                disabled={exporting !== null}
                 onClick={() => handleDownloadExport("json")}
                 className="rounded-full h-8 text-xs font-medium gap-1.5 w-fit border-border hover:bg-muted"
               >
                 <Download className="h-3.5 w-3.5" />
-                Export JSON (ECS)
+                {exporting === "json" ? "Exporting..." : "Export JSON (ECS)"}
               </Button>
             </div>
 
@@ -198,11 +257,12 @@ export default function IntegrationsPage() {
               <Button
                 variant="outline"
                 size="sm"
+                disabled={exporting !== null}
                 onClick={() => handleDownloadExport("syslog")}
                 className="rounded-full h-8 text-xs font-medium gap-1.5 w-fit border-border hover:bg-muted"
               >
                 <Download className="h-3.5 w-3.5" />
-                Export Syslog (CEF)
+                {exporting === "syslog" ? "Exporting..." : "Export Syslog (CEF)"}
               </Button>
             </div>
           </div>

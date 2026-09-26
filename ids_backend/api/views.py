@@ -1104,7 +1104,9 @@ class SiemExportView(APIView):
                     f"msg={a.recommended_action}"
                 )
                 lines.append(cef)
-            return HttpResponse("\n".join(lines), content_type="text/plain; charset=utf-8")
+            response = HttpResponse("\n".join(lines), content_type="text/plain; charset=utf-8")
+            response['Content-Disposition'] = 'attachment; filename="nexa_siem_alerts.log"'
+            return response
 
         # Standard ECS (Elastic Common Schema) JSON
         ecs_records = []
@@ -1131,5 +1133,7 @@ class SiemExportView(APIView):
                     "recommended_action": a.recommended_action
                 }
             })
-        return Response(ecs_records)
+        response = Response(ecs_records)
+        response['Content-Disposition'] = 'attachment; filename="nexa_siem_alerts.json"'
+        return response
 
