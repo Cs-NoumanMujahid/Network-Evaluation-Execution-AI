@@ -60,9 +60,10 @@ export default function IntegrationsPage() {
   };
 
   const handleDownloadExport = (format: "json" | "syslog") => {
-    window.open(`${API_BASE_URL}/siem/export/?format=${format}&limit=500`, "_blank");
+    window.open(`${API_BASE_URL}/siem/export/?export_format=${format}&limit=500`, "_blank");
     toast.success(`Exporting alerts in ${format.toUpperCase()} format...`);
   };
+
 
 
   return (

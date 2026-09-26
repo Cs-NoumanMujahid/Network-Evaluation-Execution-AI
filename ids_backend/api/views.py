@@ -2,7 +2,9 @@ import threading
 import os
 import shutil
 from datetime import timedelta
+from django.http import HttpResponse
 from django.db.models import Count, Max, Min, Q, Avg
+
 from django.db.models.functions import TruncDate, TruncHour, TruncMinute
 from django.utils import timezone
 from django.conf import settings
@@ -1075,9 +1077,17 @@ class SiemConfigView(APIView):
 
 
 class SiemExportView(APIView):
+    format_kwarg = None
+
     def get(self, request):
-        format_type = request.query_params.get('format', 'json').lower()
+        format_type = (
+            request.query_params.get('format')
+            or request.query_params.get('export_format')
+            or request.query_params.get('type')
+            or 'json'
+        ).lower()
         limit = int(request.query_params.get('limit', 100))
+
         alerts = FlowRecord.objects.filter(is_alert=True).order_by('-timestamp')[:limit]
 
         if format_type == 'syslog':
