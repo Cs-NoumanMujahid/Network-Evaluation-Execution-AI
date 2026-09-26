@@ -27,13 +27,15 @@ services:
   sniffer:
     image: nicolaka/netshoot
     container_name: traffic-sniffer
-    network_mode: "host"
+    network_mode: "container:dvwa-web"
+    depends_on:
+      - dvwa
     cap_add:
       - NET_ADMIN
       - NET_RAW
     volumes:
       - ./pcaps:/pcaps
-    command: sh -c "tcpdump -i any 'not host 168.63.129.16 and not host 127.0.0.1 and not port 22' -w /pcaps/traffic_%Y%m%d_%H%M%S.pcap -G 15"
+    command: sh -c "tcpdump -i eth0 'not host 168.63.129.16 and not host 127.0.0.1 and not port 22' -w /pcaps/traffic_%Y%m%d_%H%M%S.pcap -G 15"
 
   client1:
     image: curlimages/curl:latest
