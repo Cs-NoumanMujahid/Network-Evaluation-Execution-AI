@@ -2,6 +2,7 @@ import os
 import io
 import json
 import pickle
+import joblib
 import time
 import threading
 import numpy as np
@@ -248,8 +249,7 @@ else:
         iot_model = pickle.load(f)
 
     print("Loading IoT scaler...")
-    with open("/app/model/nexa_scalar.pkl", "rb") as f:
-        iot_scaler = pickle.load(f)
+    iot_scaler = joblib.load("/app/model/nexa_scalar.pkl")
 
     # Note: label encoder not used — using verified manual mapping instead
     print("IoT model loaded!")
