@@ -52,12 +52,13 @@ export default function IntegrationsPage() {
       } else {
         toast.error("Failed to save SIEM configuration.");
       }
-    } catch (_err) {
+    } catch {
       toast.error("Connection failed.");
     } finally {
       setLoading(false);
     }
   };
+
 
 
   const handleDownloadExport = (format: "json" | "syslog") => {
