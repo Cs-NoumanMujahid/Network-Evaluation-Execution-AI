@@ -25,8 +25,14 @@ HEALTH_INTERVAL = int(os.getenv("HEALTH_INTERVAL", "10"))
 WHITELIST_IPS = {
     "172.20.0.101",
     "172.20.0.102",
-    "172.20.0.103"
+    "172.20.0.103",
+    "168.63.129.16",   # Azure infrastructure health probe
+    "127.0.0.1",       # Localhost
+    "39.34.170.230",   # Admin browser IP
 }
+for ip in os.getenv("EXTRA_WHITELIST_IPS", "").split(","):
+    if ip.strip():
+        WHITELIST_IPS.add(ip.strip())
 
 # ── RECOMMENDED ACTIONS ───────────────────────────────────────────────────────
 
