@@ -21,8 +21,7 @@ interface OverviewCardProps {
 export default function OverviewCard({ stats, loading }: OverviewCardProps) {
   const totalFlows = stats?.total_flows || 0;
   const activeAlerts = stats?.active_alerts || 0;
-  const benign = stats?.benign_flows || 0;
-  const threats = Math.max(0, totalFlows - benign);
+  const threats = stats?.total_alerts ?? 0;
   const threatRatio = totalFlows > 0 ? Math.min(100, (threats / totalFlows) * 100) : 0;
 
   if (loading && !stats) {

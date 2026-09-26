@@ -27,9 +27,43 @@ interface SourceContextType {
 const SourceContext = createContext<SourceContextType | undefined>(undefined);
 
 export const SourceProvider = ({ children }: { children: ReactNode }) => {
-  const [sourceType, setSourceType] = useState<SourceType>("website");
+  const [sourceType, setSourceTypeState] = useState<SourceType>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("nexa_source_type");
+      if (saved === "website" || saved === "home_network") return saved;
+    }
+    return "website";
+  });
   const [sites, setSites] = useState<RegisteredSiteItem[]>([]);
-  const [activeSite, setActiveSite] = useState<RegisteredSiteItem | null>(null);
+  const [activeSite, setActiveSiteState] = useState<RegisteredSiteItem | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("nexa_active_site");
+        return saved ? JSON.parse(saved) : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+
+  const setSourceType = (type: SourceType) => {
+    setSourceTypeState(type);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nexa_source_type", type);
+    }
+  };
+
+  const setActiveSite = (site: RegisteredSiteItem | null) => {
+    setActiveSiteState(site);
+    if (typeof window !== "undefined") {
+      if (site) {
+        localStorage.setItem("nexa_active_site", JSON.stringify(site));
+      } else {
+        localStorage.removeItem("nexa_active_site");
+      }
+    }
+  };
 
   const refreshSites = useCallback(async () => {
     try {
@@ -40,10 +74,12 @@ export const SourceProvider = ({ children }: { children: ReactNode }) => {
         setSites(list);
 
         const active = list.find((s) => s.is_active) || list[0] || null;
-        setActiveSite((prev) => {
-          if (!prev) return active;
-          const stillExists = list.find((s) => s.id === prev.id);
-          return stillExists || active;
+        setActiveSiteState((prev) => {
+          const target = (prev && list.find((s) => s.id === prev.id)) || active;
+          if (typeof window !== "undefined" && target) {
+            localStorage.setItem("nexa_active_site", JSON.stringify(target));
+          }
+          return target;
         });
       }
     } catch (e) {

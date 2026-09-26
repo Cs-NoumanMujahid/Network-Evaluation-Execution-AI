@@ -52,10 +52,12 @@ def _filter_by_source_and_site(request, qs):
         try:
             from .models import RegisteredSite
             site = RegisteredSite.objects.filter(id=registered_id).first()
+            site_filter = Q(registered_id=str(registered_id))
+            if site and (site.is_active or RegisteredSite.objects.count() == 1):
+                site_filter |= Q(registered_id='1') | Q(registered_id__isnull=True) | Q(registered_id='')
             if site and site.ip_address:
-                qs = qs.filter(Q(registered_id=str(registered_id)) | Q(dst_ip=site.ip_address) | Q(src_ip=site.ip_address))
-            else:
-                qs = qs.filter(registered_id=str(registered_id))
+                site_filter |= Q(dst_ip=site.ip_address) | Q(src_ip=site.ip_address)
+            qs = qs.filter(site_filter)
         except Exception:
             qs = qs.filter(registered_id=str(registered_id))
     return qs
@@ -141,12 +143,20 @@ class FlowIngestView(APIView):
         whitelisted_ips = set(WhitelistedIP.objects.values_list('ip', flat=True))
         blocked_ips = set(BlockedIP.objects.values_list('ip', flat=True))
 
+        from .models import RegisteredSite
+        active_site = RegisteredSite.objects.filter(is_active=True).first()
+        if not active_site:
+            active_site = RegisteredSite.objects.first()
+
         for item in flows:
             src_ip = item.get('src_ip')
             if src_ip and src_ip in blocked_ips:
                 continue
 
             item['timestamp'] = now
+            if active_site and item.get('source_type', 'website') == 'website':
+                item['registered_id'] = str(active_site.id)
+
             if src_ip and src_ip in whitelisted_ips:
                 item['is_alert'] = False
                 item['prediction'] = 'Benign'
@@ -174,6 +184,7 @@ class FlowIngestView(APIView):
         total_alerts = FlowRecord.objects.filter(is_alert=True).count()
         active_alerts = Incident.objects.filter(status='open').count()
         resolved_alerts = Incident.objects.filter(status='resolved').count()
+        benign_flows = FlowRecord.objects.filter(is_alert=False).count()
         threat_rate = (total_alerts / total_flows * 100) if total_flows else 0.0
         payload = {
             'type': 'dashboard_update',
@@ -181,6 +192,7 @@ class FlowIngestView(APIView):
             'total_alerts': total_alerts,
             'active_alerts': active_alerts,
             'resolved_alerts': resolved_alerts,
+            'benign_flows': benign_flows,
             'detection_rate': round(threat_rate, 2),
             'latest_alerts': list(
                 FlowRecord.objects.filter(is_alert=True).order_by('-timestamp')[:10].values(
@@ -246,10 +258,12 @@ class DashboardStatsView(APIView):
             try:
                 from .models import RegisteredSite
                 site = RegisteredSite.objects.filter(id=registered_id).first()
+                site_filter = Q(flow__registered_id=str(registered_id))
+                if site and (site.is_active or RegisteredSite.objects.count() == 1):
+                    site_filter |= Q(flow__registered_id='1') | Q(flow__registered_id__isnull=True) | Q(flow__registered_id='')
                 if site and site.ip_address:
-                    incident_qs = incident_qs.filter(Q(flow__registered_id=str(registered_id)) | Q(flow__dst_ip=site.ip_address) | Q(flow__src_ip=site.ip_address))
-                else:
-                    incident_qs = incident_qs.filter(flow__registered_id=str(registered_id))
+                    site_filter |= Q(flow__dst_ip=site.ip_address) | Q(flow__src_ip=site.ip_address)
+                incident_qs = incident_qs.filter(site_filter)
             except Exception:
                 incident_qs = incident_qs.filter(flow__registered_id=str(registered_id))
 
@@ -821,10 +835,12 @@ class IncidentTimelineView(APIView):
             try:
                 from .models import RegisteredSite
                 site = RegisteredSite.objects.filter(id=registered_id).first()
+                site_filter = Q(flow__registered_id=str(registered_id))
+                if site and (site.is_active or RegisteredSite.objects.count() == 1):
+                    site_filter |= Q(flow__registered_id='1') | Q(flow__registered_id__isnull=True) | Q(flow__registered_id='')
                 if site and site.ip_address:
-                    qs = qs.filter(Q(flow__registered_id=str(registered_id)) | Q(flow__dst_ip=site.ip_address) | Q(flow__src_ip=site.ip_address))
-                else:
-                    qs = qs.filter(flow__registered_id=str(registered_id))
+                    site_filter |= Q(flow__dst_ip=site.ip_address) | Q(flow__src_ip=site.ip_address)
+                qs = qs.filter(site_filter)
             except Exception:
                 qs = qs.filter(flow__registered_id=str(registered_id))
             

@@ -312,35 +312,7 @@ export const useDashboardData = () => {
       try {
         const data = JSON.parse(event.data);
         if (data.type === "dashboard_update") {
-          setStats((prev) => {
-            if (!prev) return null;
-            return {
-              ...prev,
-              total_flows: data.total_flows ?? prev.total_flows,
-              total_alerts: data.total_alerts ?? prev.total_alerts,
-              active_alerts: data.active_alerts ?? prev.active_alerts,
-              resolved_alerts: data.resolved_alerts ?? prev.resolved_alerts,
-              detection_rate: data.detection_rate ?? prev.detection_rate,
-            };
-          });
-
-          if (data.pipeline_status) {
-            setPipelineStatus(data.pipeline_status);
-          }
-
-          if (data.latest_alerts && data.latest_alerts.length > 0) {
-            setAlerts((prev) => {
-              if (!prev) return prev;
-
-              const existingIds = new Set(prev.results.map((a) => a.id));
-              const uniqueNewAlerts = data.latest_alerts.filter((a: AlertResult) => !existingIds.has(a.id));
-
-              if (uniqueNewAlerts.length === 0) return prev;
-
-              const newResults = [...uniqueNewAlerts, ...prev.results].slice(0, 100);
-              return { ...prev, results: newResults, count: prev.count + uniqueNewAlerts.length };
-            });
-          }
+          fetchData();
         }
       } catch (err) {
         console.error(err);
@@ -353,7 +325,7 @@ export const useDashboardData = () => {
     return () => {
       ws.close();
     };
-  }, []);
+  }, [fetchData]);
 
   return {
     stats,
