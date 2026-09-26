@@ -33,7 +33,7 @@ services:
       - NET_RAW
     volumes:
       - ./pcaps:/pcaps
-    command: sh -c "tcpdump -i eth0 'tcp port 80 and not host 127.0.0.1' -w /pcaps/traffic_%Y%m%d_%H%M%S.pcap -G 15"
+    command: sh -c "tcpdump -i eth0 'tcp port 80 and not host 168.63.129.16 and not host 127.0.0.1' -w /pcaps/traffic_%Y%m%d_%H%M%S.pcap -G 15"
 
   client1:
     image: curlimages/curl:latest

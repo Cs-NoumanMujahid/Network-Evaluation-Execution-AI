@@ -53,8 +53,8 @@ class ScanResetView(APIView):
         try:
             stop_attack_process()
             # Restart ML consumer containers to reset their offsets to 'latest' and discard stale queues
-            subprocess.run(['docker', 'restart', 'ml-consumer'], capture_output=True, timeout=5)
-            subprocess.run(['docker', 'restart', 'ml-consumer-iot'], capture_output=True, timeout=5)
+            subprocess.run(['sudo', 'docker', 'restart', 'ml-consumer'], capture_output=True, timeout=5)
+            subprocess.run(['sudo', 'docker', 'restart', 'ml-consumer-iot'], capture_output=True, timeout=5)
         except Exception as e:
             print(f"[ScanReset] stop/restart processes warning: {e}")
 
@@ -69,14 +69,6 @@ class ScanResetView(APIView):
             from .models import BlockedIP, WhitelistedIP
             BlockedIP.objects.all().delete()
             WhitelistedIP.objects.all().delete()
-
-            try:
-                subprocess.run([
-                    "docker", "exec", "traffic-sniffer",
-                    "iptables", "-F", "INPUT"
-                ], timeout=3)
-            except Exception as e:
-                print(f"[ScanReset] iptables flush warning: {e}")
         except Exception as e:
             return Response(
                 {"status": "error", "message": f"Database cleanup failed: {str(e)}"},
@@ -87,17 +79,10 @@ class ScanResetView(APIView):
         pcaps_dir = settings.BASE_DIR.parent / 'pcaps'
         flows_dir = settings.BASE_DIR.parent / 'flows'
 
-        for directory in [pcaps_dir, flows_dir]:
-            if os.path.exists(directory):
-                for item in os.listdir(directory):
-                    item_path = os.path.join(directory, item)
-                    try:
-                        if os.path.isfile(item_path) or os.path.islink(item_path):
-                            os.unlink(item_path)
-                        elif os.path.isdir(item_path):
-                            shutil.rmtree(item_path)
-                    except Exception as e:
-                        print(f"Failed to delete {item_path}: {e}")
+        try:
+            subprocess.run(["sudo", "rm", "-f", f"{pcaps_dir}/*.pcap", f"{flows_dir}/*.csv"], shell=True, timeout=3)
+        except Exception as e:
+            print(f"[ScanReset] File cleanup warning: {e}")
 
         # 3. Broadcast empty state to active WebSocket dashboard client connections
         payload = {
