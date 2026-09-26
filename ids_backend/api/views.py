@@ -52,12 +52,24 @@ def _filter_by_source_and_site(request, qs):
         try:
             from .models import RegisteredSite
             site = RegisteredSite.objects.filter(id=registered_id).first()
-            site_filter = Q(registered_id=str(registered_id))
-            if site and (site.is_active or RegisteredSite.objects.count() == 1):
-                site_filter |= Q(registered_id='1') | Q(registered_id__isnull=True) | Q(registered_id='')
-            if site and site.ip_address:
-                site_filter |= Q(dst_ip=site.ip_address) | Q(src_ip=site.ip_address)
-            qs = qs.filter(site_filter)
+            if site:
+                site_ips = set()
+                if site.ip_address:
+                    site_ips.add(site.ip_address)
+                if site.domain and not site.domain.endswith('.local'):
+                    try:
+                        import socket
+                        for res in socket.getaddrinfo(site.domain, 80):
+                            site_ips.add(res[4][0])
+                    except Exception:
+                        pass
+
+                site_filter = Q(registered_id=str(site.id))
+                for ip in site_ips:
+                    site_filter |= Q(dst_ip=ip) | Q(src_ip=ip)
+                qs = qs.filter(site_filter)
+            else:
+                qs = qs.filter(registered_id=str(registered_id))
         except Exception:
             qs = qs.filter(registered_id=str(registered_id))
     return qs
@@ -144,18 +156,30 @@ class FlowIngestView(APIView):
         blocked_ips = set(BlockedIP.objects.values_list('ip', flat=True))
 
         from .models import RegisteredSite
-        active_site = RegisteredSite.objects.filter(is_active=True).first()
-        if not active_site:
-            active_site = RegisteredSite.objects.first()
+        import socket
+        site_ip_map = {}
+        for s in RegisteredSite.objects.all():
+            if s.ip_address:
+                site_ip_map[s.ip_address] = str(s.id)
+            if s.domain and not s.domain.endswith('.local'):
+                try:
+                    for res in socket.getaddrinfo(s.domain, 80):
+                        site_ip_map[res[4][0]] = str(s.id)
+                except Exception:
+                    pass
 
         for item in flows:
             src_ip = item.get('src_ip')
+            dst_ip = item.get('dst_ip')
             if src_ip and src_ip in blocked_ips:
                 continue
 
             item['timestamp'] = now
-            if active_site and item.get('source_type', 'website') == 'website':
-                item['registered_id'] = str(active_site.id)
+            matched_site_id = site_ip_map.get(dst_ip) or site_ip_map.get(src_ip)
+            if matched_site_id:
+                item['registered_id'] = matched_site_id
+            else:
+                item['registered_id'] = None
 
             if src_ip and src_ip in whitelisted_ips:
                 item['is_alert'] = False
@@ -258,12 +282,23 @@ class DashboardStatsView(APIView):
             try:
                 from .models import RegisteredSite
                 site = RegisteredSite.objects.filter(id=registered_id).first()
-                site_filter = Q(flow__registered_id=str(registered_id))
-                if site and (site.is_active or RegisteredSite.objects.count() == 1):
-                    site_filter |= Q(flow__registered_id='1') | Q(flow__registered_id__isnull=True) | Q(flow__registered_id='')
-                if site and site.ip_address:
-                    site_filter |= Q(flow__dst_ip=site.ip_address) | Q(flow__src_ip=site.ip_address)
-                incident_qs = incident_qs.filter(site_filter)
+                if site:
+                    site_ips = set()
+                    if site.ip_address:
+                        site_ips.add(site.ip_address)
+                    if site.domain and not site.domain.endswith('.local'):
+                        try:
+                            import socket
+                            for res in socket.getaddrinfo(site.domain, 80):
+                                site_ips.add(res[4][0])
+                        except Exception:
+                            pass
+                    site_filter = Q(flow__registered_id=str(site.id))
+                    for ip in site_ips:
+                        site_filter |= Q(flow__dst_ip=ip) | Q(flow__src_ip=ip)
+                    incident_qs = incident_qs.filter(site_filter)
+                else:
+                    incident_qs = incident_qs.filter(flow__registered_id=str(registered_id))
             except Exception:
                 incident_qs = incident_qs.filter(flow__registered_id=str(registered_id))
 
@@ -835,12 +870,23 @@ class IncidentTimelineView(APIView):
             try:
                 from .models import RegisteredSite
                 site = RegisteredSite.objects.filter(id=registered_id).first()
-                site_filter = Q(flow__registered_id=str(registered_id))
-                if site and (site.is_active or RegisteredSite.objects.count() == 1):
-                    site_filter |= Q(flow__registered_id='1') | Q(flow__registered_id__isnull=True) | Q(flow__registered_id='')
-                if site and site.ip_address:
-                    site_filter |= Q(flow__dst_ip=site.ip_address) | Q(flow__src_ip=site.ip_address)
-                qs = qs.filter(site_filter)
+                if site:
+                    site_ips = set()
+                    if site.ip_address:
+                        site_ips.add(site.ip_address)
+                    if site.domain and not site.domain.endswith('.local'):
+                        try:
+                            import socket
+                            for res in socket.getaddrinfo(site.domain, 80):
+                                site_ips.add(res[4][0])
+                        except Exception:
+                            pass
+                    site_filter = Q(flow__registered_id=str(site.id))
+                    for ip in site_ips:
+                        site_filter |= Q(flow__dst_ip=ip) | Q(flow__src_ip=ip)
+                    qs = qs.filter(site_filter)
+                else:
+                    qs = qs.filter(flow__registered_id=str(registered_id))
             except Exception:
                 qs = qs.filter(flow__registered_id=str(registered_id))
             
