@@ -35,9 +35,12 @@ import {
 
 const Navbar = () => {
   const { setTheme } = useTheme();
-  const { sourceType, setSourceType } = useSource();
+  const { sourceType, setSourceType, activeSite, sites, activateSite } = useSource();
   const [isResetting, setIsResetting] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingSiteId, setPendingSiteId] = useState<number | null>(null);
+  const [showSiteConfirmModal, setShowSiteConfirmModal] = useState(false);
+  const [isActivating, setIsActivating] = useState(false);
 
   const handleNewScan = async () => {
     setIsResetting(true);
@@ -68,18 +71,20 @@ const Navbar = () => {
             Hi, Admin <span className="font-display italic font-normal text-muted-foreground">!</span>
           </h1>
           <p className="text-sm text-muted-foreground hidden sm:block">
-            Here&apos;s what&apos;s happening on your network today.
+            {sourceType === "website" && activeSite
+              ? `Here's what's happening on ${activeSite.name} today.`
+              : "Here's what's happening on your network today."}
           </p>
         </div>
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="hidden md:block">
+        <div className="hidden md:flex items-center gap-2">
           <Select
             value={sourceType}
             onValueChange={(value: "website" | "home_network") => setSourceType(value)}
           >
-            <SelectTrigger className="h-10 w-[160px] rounded-full border-border bg-card text-xs font-medium px-4">
+            <SelectTrigger className="h-10 w-[140px] rounded-full border-border bg-card text-xs font-medium px-4">
               <SelectValue placeholder="Select source" />
             </SelectTrigger>
             <SelectContent>
@@ -87,6 +92,33 @@ const Navbar = () => {
               <SelectItem value="home_network">Home network</SelectItem>
             </SelectContent>
           </Select>
+
+          {sourceType === "website" && sites.length > 0 && (
+            <Select
+              value={activeSite ? String(activeSite.id) : ""}
+              onValueChange={(val) => {
+                const siteId = Number(val);
+                if (siteId && siteId !== activeSite?.id) {
+                  setPendingSiteId(siteId);
+                  setShowSiteConfirmModal(true);
+                }
+              }}
+            >
+              <SelectTrigger className="h-10 min-w-[150px] max-w-[200px] rounded-full border-border bg-card text-xs font-medium px-4">
+                <span className="truncate">{activeSite?.name || "Select target"}</span>
+              </SelectTrigger>
+              <SelectContent>
+                {sites.map((site) => (
+                  <SelectItem key={site.id} value={String(site.id)}>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{site.name}</span>
+                      <span className="text-[10px] text-muted-foreground">({site.domain})</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         <Button
@@ -168,6 +200,54 @@ const Navbar = () => {
               className="flex-1 rounded-full h-10 bg-foreground text-background hover:bg-foreground/90 font-medium"
             >
               {isResetting ? "Resetting..." : "Confirm"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showSiteConfirmModal} onOpenChange={setShowSiteConfirmModal}>
+        <DialogContent className="max-w-[420px] rounded-2xl p-6 [&>button]:hidden">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-foreground">
+              Switch Active Target?
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground mt-2 leading-relaxed">
+              Are you sure you want to switch the active monitoring target to{" "}
+              <strong className="text-foreground">
+                {sites.find((s) => s.id === pendingSiteId)?.name || "the selected site"}
+              </strong>
+              ? Dashboard charts, metrics, and alerts will be filtered specifically for this target.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-6 flex gap-3 sm:flex-row flex-col-reverse">
+            <Button
+              variant="outline"
+              disabled={isActivating}
+              onClick={() => {
+                setShowSiteConfirmModal(false);
+                setPendingSiteId(null);
+              }}
+              className="flex-1 rounded-full h-10 border-border bg-card text-foreground hover:bg-accent"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={isActivating}
+              onClick={async () => {
+                if (pendingSiteId) {
+                  setIsActivating(true);
+                  try {
+                    await activateSite(pendingSiteId);
+                  } finally {
+                    setIsActivating(false);
+                    setShowSiteConfirmModal(false);
+                    setPendingSiteId(null);
+                  }
+                }
+              }}
+              className="flex-1 rounded-full h-10 bg-foreground text-background hover:bg-foreground/90 font-medium"
+            >
+              {isActivating ? "Switching..." : "Confirm Switch"}
             </Button>
           </DialogFooter>
         </DialogContent>

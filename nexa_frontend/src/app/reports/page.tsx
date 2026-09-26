@@ -49,7 +49,7 @@ interface ReportStats {
 }
 
 export default function ReportsPage() {
-  const { sourceType } = useSource();
+  const { sourceType, activeSite } = useSource();
   const [datePreset, setDatePreset] = useState<string>("7d");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
@@ -88,7 +88,8 @@ export default function ReportsPage() {
     if (!dateFrom || !dateTo) return;
     setLoading(true);
     try {
-      const queryParams = `?source_type=${sourceType}&date_from=${dateFrom}&date_to=${dateTo}`;
+      const siteParam = sourceType === "website" && activeSite ? `&registered_id=${activeSite.id}` : "";
+      const queryParams = `?source_type=${sourceType}&date_from=${dateFrom}&date_to=${dateTo}${siteParam}`;
 
       const [statsRes, breakdownRes, attackersRes, timelineRes] = await Promise.all([
         fetch(`${API_BASE_URL}/dashboard/stats/${queryParams}`).catch(() => null),
@@ -114,7 +115,7 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [sourceType, dateFrom, dateTo]);
+  }, [sourceType, activeSite, dateFrom, dateTo]);
 
   // Trigger report fetch when date preset or ranges populate
   useEffect(() => {

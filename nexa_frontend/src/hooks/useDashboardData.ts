@@ -228,7 +228,7 @@ const MOCK_DATA = {
 };
 
 export const useDashboardData = () => {
-  const { sourceType } = useSource();
+  const { sourceType, activeSite } = useSource();
 
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [attackTypes, setAttackTypes] = useState<AttackTypesData | null>(null);
@@ -255,6 +255,7 @@ export const useDashboardData = () => {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    const siteParam = sourceType === "website" && activeSite ? `&registered_id=${activeSite.id}` : "";
     try {
       const [
         statsRes,
@@ -266,14 +267,14 @@ export const useDashboardData = () => {
         pipelineStatusRes,
         alertsRes,
       ] = await Promise.all([
-        fetch(`${API_BASE_URL}/dashboard/stats/?source_type=${sourceType}`).catch(() => null),
-        fetch(`${API_BASE_URL}/dashboard/attack-types/?source_type=${sourceType}`).catch(() => null),
-        fetch(`${API_BASE_URL}/dashboard/severity/?source_type=${sourceType}`).catch(() => null),
-        fetch(`${API_BASE_URL}/dashboard/traffic-volume/?source_type=${sourceType}&minutes=60`).catch(() => null),
-        fetch(`${API_BASE_URL}/dashboard/top-attackers/?source_type=${sourceType}&limit=5`).catch(() => null),
-        fetch(`${API_BASE_URL}/dashboard/top-targets/?source_type=${sourceType}&limit=5`).catch(() => null),
+        fetch(`${API_BASE_URL}/dashboard/stats/?source_type=${sourceType}${siteParam}`).catch(() => null),
+        fetch(`${API_BASE_URL}/dashboard/attack-types/?source_type=${sourceType}${siteParam}`).catch(() => null),
+        fetch(`${API_BASE_URL}/dashboard/severity/?source_type=${sourceType}${siteParam}`).catch(() => null),
+        fetch(`${API_BASE_URL}/dashboard/traffic-volume/?source_type=${sourceType}&minutes=60${siteParam}`).catch(() => null),
+        fetch(`${API_BASE_URL}/dashboard/top-attackers/?source_type=${sourceType}&limit=5${siteParam}`).catch(() => null),
+        fetch(`${API_BASE_URL}/dashboard/top-targets/?source_type=${sourceType}&limit=5${siteParam}`).catch(() => null),
         fetch(`${API_BASE_URL}/dashboard/pipeline-status/`).catch(() => null),
-        fetch(`${API_BASE_URL}/alerts/?source_type=${sourceType}&page=${page}&limit=${pageSize}`).catch(() => null),
+        fetch(`${API_BASE_URL}/alerts/?source_type=${sourceType}&page=${page}&limit=${pageSize}${siteParam}`).catch(() => null),
       ]);
 
       const allFailed = ![statsRes, attackTypesRes, severityRes, trafficVolumeRes, topAttackersRes, topTargetsRes, pipelineStatusRes, alertsRes].some((res) => res && res.ok);
@@ -296,7 +297,7 @@ export const useDashboardData = () => {
     } finally {
       setLoading(false);
     }
-  }, [sourceType, page, pageSize, applyMockData]);
+  }, [sourceType, activeSite, page, pageSize, applyMockData]);
 
   useEffect(() => {
     fetchData();

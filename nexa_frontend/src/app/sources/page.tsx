@@ -7,9 +7,12 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useSource } from "@/components/providers/SourceContext";
 import {
   Select,
   SelectContent,
@@ -54,12 +57,16 @@ interface Device {
 }
 
 export default function SourcesPage() {
+  const { activateSite, refreshSites } = useSource();
   const [sites, setSites] = useState<Site[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Modals state
   const [addType, setAddType] = useState<"website" | "device" | null>(null);
+  const [targetToActivate, setTargetToActivate] = useState<Site | null>(null);
+  const [confirmActivateOpen, setConfirmActivateOpen] = useState(false);
+  const [isActivating, setIsActivating] = useState(false);
 
   // Form states
   const [name, setName] = useState("");
@@ -78,6 +85,7 @@ export default function SourcesPage() {
       ]);
       if (sitesRes.ok) setSites(await sitesRes.ok ? await sitesRes.json() : []);
       if (devicesRes.ok) setDevices(await devicesRes.ok ? await devicesRes.json() : []);
+      await refreshSites();
     } catch {
       toast.error("Failed to load sources. Check your backend connection.");
     } finally {
@@ -148,6 +156,26 @@ export default function SourcesPage() {
       }
     } catch {
       toast.error(`Error removing "${sourceName}". Check your backend connection.`);
+    }
+  };
+
+  const handleActivateTarget = async () => {
+    if (!targetToActivate) return;
+    setIsActivating(true);
+    try {
+      const ok = await activateSite(targetToActivate.id);
+      if (ok) {
+        toast.success(`Active target switched to "${targetToActivate.name}"`);
+        await fetchSources();
+      } else {
+        toast.error("Failed to switch active target.");
+      }
+    } catch {
+      toast.error("Error setting active target.");
+    } finally {
+      setIsActivating(false);
+      setConfirmActivateOpen(false);
+      setTargetToActivate(null);
     }
   };
 
@@ -231,9 +259,6 @@ export default function SourcesPage() {
                           <div className="flex items-center gap-1.5">
                             <Globe className="h-3.5 w-3.5 text-muted-foreground" />
                             <span className="text-sm font-semibold text-foreground">{site.name}</span>
-                            {site.is_active && (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                            )}
                           </div>
                           <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
                             <span>{site.domain}</span>
@@ -241,14 +266,33 @@ export default function SourcesPage() {
                             <span>{site.ip_address}</span>
                           </div>
                         </div>
-                        <Button
-                          onClick={() => handleDeleteSource("website", site.id, site.name)}
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {site.is_active ? (
+                            <span className="px-2.5 py-1 text-[11px] font-medium rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" /> Active Target
+                            </span>
+                          ) : (
+                            <Button
+                              onClick={() => {
+                                setTargetToActivate(site);
+                                setConfirmActivateOpen(true);
+                              }}
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs rounded-full px-3 text-muted-foreground hover:text-foreground border-border hover:bg-accent"
+                            >
+                              Set Active
+                            </Button>
+                          )}
+                          <Button
+                            onClick={() => handleDeleteSource("website", site.id, site.name)}
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     ))
                   )}
@@ -412,6 +456,39 @@ export default function SourcesPage() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmActivateOpen} onOpenChange={setConfirmActivateOpen}>
+        <DialogContent className="max-w-[420px] rounded-2xl p-6 [&>button]:hidden">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-foreground">
+              Switch Active Target?
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground mt-2 leading-relaxed">
+              Are you sure you want to set <strong className="text-foreground">{targetToActivate?.name}</strong> as the active monitoring target? Dashboard metrics and alerts will filter specifically for this target.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-6 flex gap-3 sm:flex-row flex-col-reverse">
+            <Button
+              variant="outline"
+              disabled={isActivating}
+              onClick={() => {
+                setConfirmActivateOpen(false);
+                setTargetToActivate(null);
+              }}
+              className="flex-1 rounded-full h-10 border-border bg-card text-foreground hover:bg-accent"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={isActivating}
+              onClick={handleActivateTarget}
+              className="flex-1 rounded-full h-10 bg-foreground text-background hover:bg-foreground/90 font-medium"
+            >
+              {isActivating ? "Switching..." : "Confirm Switch"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

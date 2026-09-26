@@ -43,6 +43,24 @@ def _source_type(request):
     return request.query_params.get('source_type')
 
 
+def _filter_by_source_and_site(request, qs):
+    source_type = _source_type(request)
+    if source_type:
+        qs = qs.filter(source_type=source_type)
+    registered_id = request.query_params.get('registered_id') or request.query_params.get('site_id')
+    if registered_id and str(registered_id).lower() not in ('all', '0', 'none', ''):
+        try:
+            from .models import RegisteredSite
+            site = RegisteredSite.objects.filter(id=registered_id).first()
+            if site and site.ip_address:
+                qs = qs.filter(Q(registered_id=str(registered_id)) | Q(dst_ip=site.ip_address) | Q(src_ip=site.ip_address))
+            else:
+                qs = qs.filter(registered_id=str(registered_id))
+        except Exception:
+            qs = qs.filter(registered_id=str(registered_id))
+    return qs
+
+
 def _send_group(group, event_type, payload):
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(group, {'type': event_type, 'payload': payload})
@@ -216,13 +234,25 @@ def _filter_by_date(request, qs, date_field='timestamp'):
 
 class DashboardStatsView(APIView):
     def get(self, request):
-        source_type = _source_type(request)
         qs = FlowRecord.objects.all()
         incident_qs = Incident.objects.all()
+        qs = _filter_by_source_and_site(request, qs)
+
+        source_type = _source_type(request)
+        registered_id = request.query_params.get('registered_id') or request.query_params.get('site_id')
         if source_type:
-            qs = qs.filter(source_type=source_type)
             incident_qs = incident_qs.filter(flow__source_type=source_type)
-        
+        if registered_id and str(registered_id).lower() not in ('all', '0', 'none', ''):
+            try:
+                from .models import RegisteredSite
+                site = RegisteredSite.objects.filter(id=registered_id).first()
+                if site and site.ip_address:
+                    incident_qs = incident_qs.filter(Q(flow__registered_id=str(registered_id)) | Q(flow__dst_ip=site.ip_address) | Q(flow__src_ip=site.ip_address))
+                else:
+                    incident_qs = incident_qs.filter(flow__registered_id=str(registered_id))
+            except Exception:
+                incident_qs = incident_qs.filter(flow__registered_id=str(registered_id))
+
         qs = _filter_by_date(request, qs, 'timestamp')
         incident_qs = _filter_by_date(request, incident_qs, 'created_at')
 
@@ -247,10 +277,7 @@ class DashboardStatsView(APIView):
 class AttackTypesView(APIView):
     def get(self, request):
         qs = FlowRecord.objects.all()
-        source_type = _source_type(request)
-        if source_type:
-            qs = qs.filter(source_type=source_type)
-        
+        qs = _filter_by_source_and_site(request, qs)
         qs = _filter_by_date(request, qs, 'timestamp')
         rows = qs.values('prediction').annotate(count=Count('id')).order_by('-count')
         return Response({'labels': [x['prediction'] for x in rows], 'values': [x['count'] for x in rows]})
@@ -259,10 +286,7 @@ class AttackTypesView(APIView):
 class SeverityDistributionView(APIView):
     def get(self, request):
         qs = FlowRecord.objects.all()
-        source_type = _source_type(request)
-        if source_type:
-            qs = qs.filter(source_type=source_type)
-        
+        qs = _filter_by_source_and_site(request, qs)
         qs = _filter_by_date(request, qs, 'timestamp')
         rows = qs.values('severity').annotate(count=Count('id')).order_by('-count')
         return Response({'labels': [x['severity'] for x in rows], 'values': [x['count'] for x in rows]})
@@ -274,18 +298,12 @@ class TrafficVolumeView(APIView):
         now = timezone.now()
         start_time = now - timedelta(minutes=minutes)
         qs = FlowRecord.objects.filter(timestamp__gte=start_time)
-        source_type = _source_type(request)
-        if source_type:
-            qs = qs.filter(source_type=source_type)
+        qs = _filter_by_source_and_site(request, qs)
 
         grouped = qs.annotate(minute=TruncMinute('timestamp')).values('minute').annotate(
             flows=Count('id'),
             alerts=Count('id', filter=Q(is_alert=True)),
         ).order_by('minute')
-
-        print(f"DEBUG: Found {len(grouped)} minutes in window {start_time} to {now}")
-        if len(grouped) > 0:
-            print(f"DEBUG: First minute: {grouped[0]['minute']}, Last minute: {grouped[len(grouped)-1]['minute']}")
 
         data_map = {x['minute'].strftime('%H:%M'): x for x in grouped}
 
@@ -316,17 +334,13 @@ class TopAttackersView(APIView):
     def get(self, request):
         limit = int(request.query_params.get('limit', 5))
         qs = FlowRecord.objects.filter(is_alert=True)
-        source_type = _source_type(request)
-        if source_type:
-            qs = qs.filter(source_type=source_type)
-        
+        qs = _filter_by_source_and_site(request, qs)
         qs = _filter_by_date(request, qs, 'timestamp')
         top = qs.values('src_ip').annotate(count=Count('id')).order_by('-count')[:limit]
         attackers = []
         for row in top:
             preds_qs = qs.filter(src_ip=row['src_ip'])
             preds = preds_qs.order_by().values_list('prediction', flat=True).distinct()
-            # Get the real status from the most recent incident for this IP
             latest_incident = Incident.objects.filter(src_ip=row['src_ip']).order_by('-created_at').first()
             real_status = latest_incident.status if latest_incident else 'open'
             attackers.append({
@@ -342,10 +356,7 @@ class TopTargetsView(APIView):
     def get(self, request):
         limit = int(request.query_params.get('limit', 5))
         qs = FlowRecord.objects.filter(is_alert=True)
-        source_type = _source_type(request)
-        if source_type:
-            qs = qs.filter(source_type=source_type)
-        
+        qs = _filter_by_source_and_site(request, qs)
         qs = _filter_by_date(request, qs, 'timestamp')
         top = qs.values('dst_ip').annotate(count=Count('id')).order_by('-count')[:limit]
         targets = []
@@ -368,10 +379,7 @@ class TopTargetsView(APIView):
 class ThreatBreakdownView(APIView):
     def get(self, request):
         qs = FlowRecord.objects.all()
-        source_type = _source_type(request)
-        if source_type:
-            qs = qs.filter(source_type=source_type)
-
+        qs = _filter_by_source_and_site(request, qs)
         qs = _filter_by_date(request, qs, 'timestamp')
         total_threats = qs.filter(is_alert=True).count()
 
@@ -446,13 +454,11 @@ class AlertListView(generics.ListAPIView):
         qs = FlowRecord.objects.filter(is_alert=True).order_by('-timestamp')
         severity = self.request.query_params.get('severity')
         prediction = self.request.query_params.get('prediction')
-        source_type = self.request.query_params.get('source_type')
+        qs = _filter_by_source_and_site(self.request, qs)
         if severity:
             qs = qs.filter(severity=severity)
         if prediction:
             qs = qs.filter(prediction=prediction)
-        if source_type:
-            qs = qs.filter(source_type=source_type)
         return qs
 
     def list(self, request, *args, **kwargs):
@@ -539,6 +545,28 @@ class SiteDetailView(generics.DestroyAPIView):
         response = super().delete(request, *args, **kwargs)
         reload_nginx_proxy(site_id, site_name, site_ip, domain=site_domain, remove=True)
         return Response({'status': 'deleted'})
+
+
+class ActiveSiteView(APIView):
+    def get(self, request):
+        site = RegisteredSite.objects.filter(is_active=True).first()
+        if not site:
+            site = RegisteredSite.objects.first()
+        if not site:
+            return Response(None)
+        return Response(RegisteredSiteSerializer(site).data)
+
+
+class SiteActivateView(APIView):
+    def post(self, request, pk):
+        try:
+            site = RegisteredSite.objects.get(pk=pk)
+            RegisteredSite.objects.all().update(is_active=False)
+            site.is_active = True
+            site.save(update_fields=['is_active'])
+            return Response({'status': 'ok', 'active_site': RegisteredSiteSerializer(site).data})
+        except RegisteredSite.DoesNotExist:
+            return Response({'error': 'Site not found'}, status=404)
 
 
 
@@ -786,8 +814,19 @@ class IncidentTimelineView(APIView):
     def get(self, request):
         qs = Incident.objects.all()
         source_type = _source_type(request)
+        registered_id = request.query_params.get('registered_id') or request.query_params.get('site_id')
         if source_type:
             qs = qs.filter(flow__source_type=source_type)
+        if registered_id and str(registered_id).lower() not in ('all', '0', 'none', ''):
+            try:
+                from .models import RegisteredSite
+                site = RegisteredSite.objects.filter(id=registered_id).first()
+                if site and site.ip_address:
+                    qs = qs.filter(Q(flow__registered_id=str(registered_id)) | Q(flow__dst_ip=site.ip_address) | Q(flow__src_ip=site.ip_address))
+                else:
+                    qs = qs.filter(flow__registered_id=str(registered_id))
+            except Exception:
+                qs = qs.filter(flow__registered_id=str(registered_id))
             
         date_from = request.query_params.get('date_from')
         date_to = request.query_params.get('date_to')
