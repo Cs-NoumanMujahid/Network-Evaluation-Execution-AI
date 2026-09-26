@@ -192,6 +192,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./ml_consumer/model:/app/model:ro
+      - ./ml_consumer/consumer.py:/app/consumer.py:ro
     depends_on:
       kafka:
         condition: service_healthy
@@ -217,6 +218,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./ml_consumer/model:/app/model:ro
+      - ./ml_consumer/consumer.py:/app/consumer.py:ro
     depends_on:
       kafka:
         condition: service_healthy
