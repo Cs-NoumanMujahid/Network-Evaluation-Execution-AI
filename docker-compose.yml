@@ -27,14 +27,21 @@ services:
   sniffer:
     image: nicolaka/netshoot
     container_name: traffic-sniffer
-    networks:
-      - nexa-net
+    network_mode: "host"
     cap_add:
       - NET_ADMIN
       - NET_RAW
     volumes:
       - ./pcaps:/pcaps
-    command: sh -c "tcpdump -i eth0 'not host 168.63.129.16 and not host 127.0.0.1 and not port 22' -w /pcaps/traffic_%Y%m%d_%H%M%S.pcap -G 15"
+    command: >
+      sh -c "
+      BRIDGE_DEV=\$$(ip route show 172.20.0.0/16 2>/dev/null | awk '{print \$$3}');
+      echo \"Detected nexa-net bridge: \$$BRIDGE_DEV\";
+      if [ -n \"\$$BRIDGE_DEV\" ]; then
+        tcpdump -i \$$BRIDGE_DEV 'not host 168.63.129.16 and not host 127.0.0.1 and not port 22' -w /pcaps/traffic_br_%Y%m%d_%H%M%S.pcap -G 15 &
+      fi;
+      tcpdump -i eth0 'not host 168.63.129.16 and not host 127.0.0.1 and not port 22' -w /pcaps/traffic_eth0_%Y%m%d_%H%M%S.pcap -G 15
+      "
 
   client1:
     image: curlimages/curl:latest
