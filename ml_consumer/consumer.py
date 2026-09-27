@@ -407,9 +407,13 @@ def predict_website(df_features, metadata):
 
         flow_duration = float(meta.get("Flow Duration", 0))
         flow_packets_per_sec = float(meta.get("Flow Packets/s", 0))
+        dst_port = int(meta.get("Dst Port", 0))
+        src_port = int(meta.get("Src Port", 0))
 
-        # Whitelist benign infrastructure and admin management traffic
+        # Whitelist benign infrastructure, pipeline broker ports, and admin management traffic
+        is_pipeline_port = (dst_port in {29092, 9092, 9093} or src_port in {29092, 9092, 9093})
         is_whitelisted = (
+            is_pipeline_port or
             src_ip in WHITELIST_IPS or dst_ip in WHITELIST_IPS or
             src_ip.startswith("39.34.") or dst_ip.startswith("39.34.") or
             src_ip == "172.16.0.4" or dst_ip == "172.16.0.4" or
