@@ -411,7 +411,10 @@ def predict_website(df_features, metadata):
         src_port = int(meta.get("Src Port", 0))
 
         # Whitelist benign infrastructure, pipeline broker ports, and admin management traffic
-        is_pipeline_port = (dst_port in {29092, 9092, 9093} or src_port in {29092, 9092, 9093})
+        is_pipeline_port = (
+            dst_port in {29092, 9092, 9093, 8000, 3000, 3306} or
+            src_port in {29092, 9092, 9093, 8000, 3000, 3306}
+        )
         is_whitelisted = (
             is_pipeline_port or
             src_ip in WHITELIST_IPS or dst_ip in WHITELIST_IPS or
