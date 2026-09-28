@@ -346,14 +346,15 @@ def preprocess_batch(batch_str):
             (df_raw['Flow Bytes/s'] >= 0) &
             (df_raw['Flow Packets/s'] >= 0)
         ]
-        metadata = metadata.loc[df_raw.index]
+        metadata = metadata.loc[df_raw.index].reset_index(drop=True)
+        df_raw = df_raw.reset_index(drop=True)
 
         df_raw['FWD Init Win Bytes'] = pd.to_numeric(
             df_raw['FWD Init Win Bytes'], errors='coerce').replace(-1, 0)
         df_raw['Bwd Init Win Bytes'] = pd.to_numeric(
             df_raw['Bwd Init Win Bytes'], errors='coerce').replace(-1, 0)
 
-        return df_raw, metadata.reset_index(drop=True)
+        return df_raw, metadata
 
     except Exception as e:
         print(f"Preprocessing error: {e}")
@@ -603,17 +604,19 @@ for message in consumer:
 
     if SOURCE_TYPE == "website":
         df_features = extract_website_features(df_raw)
-        if df_features is None:
-            print("Skipping batch — website feature extraction failed")
+        if df_features is None or len(df_features) == 0:
             continue
-        metadata = metadata.loc[df_features.index].reset_index(drop=True)
+        common_idx = df_features.index.intersection(metadata.index)
+        df_features = df_features.loc[common_idx].reset_index(drop=True)
+        metadata = metadata.loc[common_idx].reset_index(drop=True)
         results = predict_website(df_features, metadata)
     else:
         df_features = extract_iot_features(df_raw)
-        if df_features is None:
-            print("Skipping batch — IoT feature extraction failed")
+        if df_features is None or len(df_features) == 0:
             continue
-        metadata = metadata.loc[df_features.index].reset_index(drop=True)
+        common_idx = df_features.index.intersection(metadata.index)
+        df_features = df_features.loc[common_idx].reset_index(drop=True)
+        metadata = metadata.loc[common_idx].reset_index(drop=True)
         results = predict_iot(df_features, metadata)
 
     num_results = len(results)
