@@ -541,17 +541,23 @@ def reload_nginx_proxy(site_id, site_name, ip_address, domain=None, remove=False
             target_url = "http://172.20.0.10/dvwa/"
             host_header = "$host"
         elif domain_clean and not domain_clean.endswith(".local") and not domain_clean.startswith("172."):
-            target_url = f"http://{domain_clean}/"
+            target_url = f"https://{domain_clean}/"
             host_header = domain_clean
+            extra_proxy_directives = f"""    proxy_ssl_server_name on;
+    proxy_redirect https://{domain_clean}/ /proxy/{site_id}/;
+    proxy_redirect http://{domain_clean}/ /proxy/{site_id}/;
+    proxy_redirect / /proxy/{site_id}/;
+"""
         else:
             target_url = f"http://{target_ip}/"
             host_header = "$host"
+            extra_proxy_directives = ""
 
         conf_content = f"""# NEXA Dynamic Proxy for Site {site_id}: {site_name}
 location /proxy/{site_id}/ {{
     proxy_pass {target_url};
     proxy_set_header Host {host_header};
-    proxy_set_header X-Real-IP $remote_addr;
+{extra_proxy_directives}    proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 }}
 """
