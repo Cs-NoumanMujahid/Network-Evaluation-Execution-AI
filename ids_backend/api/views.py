@@ -168,16 +168,17 @@ class FlowIngestView(APIView):
                 except Exception:
                     pass
 
-        SYSTEM_PORTS = {0, 22, 29092, 9092, 9093, 8000, 3000, 3306}
+        SYSTEM_PORTS = {22, 29092, 9092, 9093, 8000, 3000, 3306}
         SYSTEM_IPS = {'168.63.129.16', '127.0.0.1'}
 
         for item in flows:
             src_ip = item.get('src_ip')
             dst_ip = item.get('dst_ip')
             dst_port = item.get('dst_port')
+            protocol = item.get('protocol')
 
-            # Drop pure system/pipeline infrastructure traffic completely
-            if dst_port in SYSTEM_PORTS or src_ip in SYSTEM_IPS or dst_ip in SYSTEM_IPS:
+            # Drop pure system/pipeline infrastructure traffic & ICMP pings completely
+            if protocol == 1 or dst_port in SYSTEM_PORTS or src_ip in SYSTEM_IPS or dst_ip in SYSTEM_IPS:
                 continue
 
             if src_ip and src_ip in blocked_ips:

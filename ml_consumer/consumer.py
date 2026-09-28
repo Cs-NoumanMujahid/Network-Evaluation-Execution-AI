@@ -336,7 +336,7 @@ def preprocess_batch(batch_str):
         )
         df_raw.columns = df_raw.columns.str.strip()
 
-        metadata = df_raw[["Src IP", "Dst IP", "Dst Port", "Protocol",
+        metadata = df_raw[["Src IP", "Src Port", "Dst IP", "Dst Port", "Protocol",
                             "Timestamp", "Flow Duration", "Flow Bytes/s",
                             "Flow Packets/s", "Total Fwd Packet",
                             "Total Bwd packets"]].copy()
@@ -406,14 +406,15 @@ def predict_website(df_features, metadata):
         dst_ip = str(meta.get("Dst IP", "")).strip() or ""
 
         flow_duration = float(meta.get("Flow Duration", 0))
-        flow_packets_per_sec = float(meta.get("Flow Packets/s", 0))
+        protocol = int(meta.get("Protocol", 0))
         dst_port = int(meta.get("Dst Port", 0))
         src_port = int(meta.get("Src Port", 0))
 
-        # Drop pure system/pipeline infrastructure traffic completely (neither attack nor benign)
+        # Drop pure system/pipeline infrastructure traffic & ICMP pings completely (neither attack nor benign)
         is_system_traffic = (
-            dst_port in {0, 22, 29092, 9092, 9093, 8000, 3000, 3306} or
-            src_port in {0, 22, 29092, 9092, 9093, 8000, 3000, 3306} or
+            protocol == 1 or
+            dst_port in {22, 29092, 9092, 9093, 8000, 3000, 3306} or
+            src_port in {22, 29092, 9092, 9093, 8000, 3000, 3306} or
             src_ip in {"168.63.129.16", "127.0.0.1"} or
             dst_ip in {"168.63.129.16", "127.0.0.1"}
         )
@@ -461,11 +462,13 @@ def predict_iot(df_features, metadata):
         meta = metadata.iloc[i] if i < len(metadata) else {}
         src_ip = str(meta.get("Src IP", "")).strip() or ""
         dst_ip = str(meta.get("Dst IP", "")).strip() or ""
+        protocol = int(meta.get("Protocol", 0))
         dst_port = int(meta.get("Dst Port", 0))
         src_port = int(meta.get("Src Port", 0))
 
-        # Drop pure system/pipeline infrastructure traffic completely
+        # Drop pure system/pipeline infrastructure traffic & ICMP pings completely
         if (
+            protocol == 1 or
             dst_port in {22, 29092, 9092, 9093, 8000, 3000, 3306} or
             src_port in {22, 29092, 9092, 9093, 8000, 3000, 3306} or
             src_ip in {"168.63.129.16", "127.0.0.1"} or
