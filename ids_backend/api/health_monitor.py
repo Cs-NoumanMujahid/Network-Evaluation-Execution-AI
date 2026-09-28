@@ -11,18 +11,25 @@ started = False
 
 
 def ping_website(site):
+    ping_flag = '-n' if platform.system().lower() == 'windows' else '-c'
+    target = site.ip_address if site.ip_address else site.domain
     start = time.time()
     try:
-        response = requests.get(f"http://{site.domain}", timeout=5)
+        rc = subprocess.call(
+            ['ping', ping_flag, '1', target],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         elapsed = (time.time() - start) * 1000
+        reachable = rc == 0
         TargetHealth.objects.create(
             target_type='website',
             site=site,
-            is_reachable=response.ok,
-            response_time_ms=elapsed,
-            status_code=response.status_code,
+            is_reachable=reachable,
+            response_time_ms=elapsed if reachable else None,
+            status_code=200 if reachable else None,
         )
-    except requests.RequestException:
+    except Exception:
         TargetHealth.objects.create(
             target_type='website',
             site=site,
