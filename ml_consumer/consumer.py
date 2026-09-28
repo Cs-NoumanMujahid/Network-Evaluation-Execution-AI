@@ -412,7 +412,8 @@ def predict_website(df_features, metadata):
 
         # Drop pure system/pipeline infrastructure traffic & ICMP pings completely (neither attack nor benign)
         is_system_traffic = (
-            protocol == 1 or
+            dst_port == 0 or
+            protocol in {0, 1} or
             dst_port in {22, 29092, 9092, 9093, 8000, 3000, 3306} or
             src_port in {22, 29092, 9092, 9093, 8000, 3000, 3306} or
             src_ip in {"168.63.129.16", "127.0.0.1"} or
@@ -468,7 +469,8 @@ def predict_iot(df_features, metadata):
 
         # Drop pure system/pipeline infrastructure traffic & ICMP pings completely
         if (
-            protocol == 1 or
+            dst_port == 0 or
+            protocol in {0, 1} or
             dst_port in {22, 29092, 9092, 9093, 8000, 3000, 3306} or
             src_port in {22, 29092, 9092, 9093, 8000, 3000, 3306} or
             src_ip in {"168.63.129.16", "127.0.0.1"} or

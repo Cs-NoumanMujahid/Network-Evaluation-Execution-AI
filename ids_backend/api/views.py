@@ -178,7 +178,7 @@ class FlowIngestView(APIView):
             protocol = item.get('protocol')
 
             # Drop pure system/pipeline infrastructure traffic & ICMP pings completely
-            if protocol == 1 or dst_port in SYSTEM_PORTS or src_ip in SYSTEM_IPS or dst_ip in SYSTEM_IPS:
+            if protocol in (0, 1) or dst_port == 0 or dst_port in SYSTEM_PORTS or src_ip in SYSTEM_IPS or dst_ip in SYSTEM_IPS:
                 continue
 
             if src_ip and src_ip in blocked_ips:
