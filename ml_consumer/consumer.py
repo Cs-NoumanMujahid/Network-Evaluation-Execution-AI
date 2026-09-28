@@ -410,17 +410,21 @@ def predict_website(df_features, metadata):
         dst_port = int(meta.get("Dst Port", 0))
         src_port = int(meta.get("Src Port", 0))
 
-        # Whitelist benign infrastructure, pipeline broker ports, and admin management traffic
-        is_pipeline_port = (
-            dst_port in {29092, 9092, 9093, 8000, 3000, 3306} or
-            src_port in {29092, 9092, 9093, 8000, 3000, 3306}
+        # Drop pure system/pipeline infrastructure traffic completely (neither attack nor benign)
+        is_system_traffic = (
+            dst_port in {22, 29092, 9092, 9093, 8000, 3000, 3306} or
+            src_port in {22, 29092, 9092, 9093, 8000, 3000, 3306} or
+            src_ip in {"168.63.129.16", "127.0.0.1"} or
+            dst_ip in {"168.63.129.16", "127.0.0.1"}
         )
+        if is_system_traffic:
+            continue
+
+        # Whitelist admin management IP and registered benign IPs from false positive alerts
         is_whitelisted = (
-            is_pipeline_port or
             src_ip in WHITELIST_IPS or dst_ip in WHITELIST_IPS or
             src_ip.startswith("39.34.") or dst_ip.startswith("39.34.") or
-            src_ip == "172.16.0.4" or dst_ip == "172.16.0.4" or
-            src_ip == "168.63.129.16" or dst_ip == "168.63.129.16"
+            src_ip == "172.16.0.4" or dst_ip == "172.16.0.4"
         )
         if is_whitelisted:
             label = "Benign"
@@ -455,7 +459,19 @@ def predict_iot(df_features, metadata):
 
     for i, (label, conf) in enumerate(zip(labels, confidences)):
         meta = metadata.iloc[i] if i < len(metadata) else {}
-        src_ip = str(meta.get("Src IP", "")).strip() or None
+        src_ip = str(meta.get("Src IP", "")).strip() or ""
+        dst_ip = str(meta.get("Dst IP", "")).strip() or ""
+        dst_port = int(meta.get("Dst Port", 0))
+        src_port = int(meta.get("Src Port", 0))
+
+        # Drop pure system/pipeline infrastructure traffic completely
+        if (
+            dst_port in {22, 29092, 9092, 9093, 8000, 3000, 3306} or
+            src_port in {22, 29092, 9092, 9093, 8000, 3000, 3306} or
+            src_ip in {"168.63.129.16", "127.0.0.1"} or
+            dst_ip in {"168.63.129.16", "127.0.0.1"}
+        ):
+            continue
 
         if src_ip in WHITELIST_IPS:
             label = "Benign"
