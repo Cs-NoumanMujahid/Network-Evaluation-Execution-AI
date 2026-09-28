@@ -176,8 +176,8 @@ class FlowIngestView(APIView):
             dst_ip = item.get('dst_ip')
             dst_port = item.get('dst_port')
 
-            # Drop pure system/pipeline infrastructure traffic & server-originated outbound probes completely
-            if dst_port in SYSTEM_PORTS or src_ip in SYSTEM_IPS or dst_ip in SYSTEM_IPS or src_ip == '172.16.0.4':
+            # Drop pure system/pipeline infrastructure traffic completely
+            if dst_port in SYSTEM_PORTS or src_ip in SYSTEM_IPS or dst_ip in SYSTEM_IPS:
                 continue
 
             if src_ip and src_ip in blocked_ips:

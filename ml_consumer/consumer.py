@@ -414,7 +414,7 @@ def predict_website(df_features, metadata):
         is_system_traffic = (
             dst_port in {0, 22, 29092, 9092, 9093, 8000, 3000, 3306} or
             src_port in {0, 22, 29092, 9092, 9093, 8000, 3000, 3306} or
-            src_ip in {"168.63.129.16", "127.0.0.1", "172.16.0.4"} or
+            src_ip in {"168.63.129.16", "127.0.0.1"} or
             dst_ip in {"168.63.129.16", "127.0.0.1"}
         )
         if is_system_traffic:
@@ -424,7 +424,7 @@ def predict_website(df_features, metadata):
         is_whitelisted = (
             src_ip in WHITELIST_IPS or dst_ip in WHITELIST_IPS or
             src_ip.startswith("39.34.") or dst_ip.startswith("39.34.") or
-            dst_ip == "172.16.0.4"
+            src_ip == "172.16.0.4" or dst_ip == "172.16.0.4"
         )
         if is_whitelisted:
             label = "Benign"
