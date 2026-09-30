@@ -1,6 +1,8 @@
 import threading
 import os
 import shutil
+import socket
+import subprocess
 from datetime import timedelta
 from django.http import HttpResponse
 from django.db.models import Count, Max, Min, Q, Avg
@@ -536,53 +538,188 @@ class AlertListView(generics.ListAPIView):
 
 
 def reload_nginx_proxy(site_id, site_name, ip_address, domain=None, remove=False):
+    """
+    100% Dynamic Reverse Proxy & SSL Manager:
+    - Writes subpath proxy: /etc/nginx/nexa_proxies/nexa_site_{site_id}.conf
+    - For the currently active site, generates the root domain virtual host:
+      /etc/nginx/conf.d/nexa_active_proxy.conf
+    - Automatically requests Let's Encrypt SSL certificates via certbot
+      if the domain does not yet have one.
+    - Reloads Nginx automatically.
+    """
     conf_path = f"/etc/nginx/nexa_proxies/nexa_site_{site_id}.conf"
+    active_conf_path = "/etc/nginx/conf.d/nexa_active_proxy.conf"
+
     if remove:
         if os.path.exists(conf_path):
             try:
                 os.remove(conf_path)
             except Exception as e:
                 print(f"[NginxProxy] Error removing conf {conf_path}: {e}")
+        next_active = RegisteredSite.objects.filter(is_active=True).first()
+        if not next_active:
+            next_active = RegisteredSite.objects.first()
+        if next_active:
+            reload_nginx_proxy(next_active.id, next_active.name, next_active.ip_address, domain=next_active.domain, remove=False)
+            return
+        else:
+            if os.path.exists(active_conf_path):
+                try:
+                    os.remove(active_conf_path)
+                except Exception as e:
+                    print(f"[NginxProxy] Error removing {active_conf_path}: {e}")
+            subprocess.run(["sudo", "nginx", "-s", "reload"], capture_output=True, timeout=5)
+            return
+
+    target_ip = str(ip_address).strip()
+    domain_clean = str(domain or '').strip().lower()
+
+    # Determine origin target
+    vm_public_ip = "52.237.82.53"
+    resolved_ip = None
+    if domain_clean and not domain_clean.endswith(".local") and not domain_clean.startswith("172."):
+        try:
+            resolved_ip = socket.gethostbyname(domain_clean)
+        except Exception:
+            resolved_ip = None
+
+    if target_ip == "172.20.0.10" or "dvwa" in site_name.lower():
+        target_url = "http://172.20.0.10/dvwa/"
+        host_header = "$host"
+        is_https_origin = False
+    elif domain_clean and resolved_ip != vm_public_ip and not domain_clean.endswith(".duckdns.org"):
+        target_url = f"https://{domain_clean}/"
+        host_header = domain_clean
+        is_https_origin = True
+    elif target_ip:
+        target_url = f"https://{target_ip}:443/" if target_ip.endswith(":443") else f"http://{target_ip}/"
+        host_header = domain_clean if domain_clean else "$host"
+        is_https_origin = True if target_ip.endswith(":443") else False
     else:
-        target_ip = str(ip_address).strip()
-        domain_clean = str(domain or '').strip()
-        
-        if target_ip == "172.20.0.10":
-            target_url = "http://172.20.0.10/dvwa/"
-            host_header = "$host"
-        elif domain_clean and not domain_clean.endswith(".local") and not domain_clean.startswith("172."):
-            target_url = f"https://{domain_clean}/"
-            host_header = domain_clean
-            extra_proxy_directives = f"""    proxy_ssl_server_name on;
-    proxy_redirect https://{domain_clean}/ /proxy/{site_id}/;
-    proxy_redirect http://{domain_clean}/ /proxy/{site_id}/;
+        target_url = "http://127.0.0.1:8080/dvwa/"
+        host_header = "$host"
+        is_https_origin = False
+
+    extra_proxy_directives = ""
+    if is_https_origin:
+        extra_proxy_directives = f"""    proxy_ssl_name {host_header};
+    proxy_ssl_server_name on;
+    proxy_redirect {target_url} /proxy/{site_id}/;
+    proxy_redirect https://{host_header}/ /proxy/{site_id}/;
+    proxy_redirect http://{host_header}/ /proxy/{site_id}/;
     proxy_redirect / /proxy/{site_id}/;
 """
-        else:
-            target_url = f"http://{target_ip}/"
-            host_header = "$host"
-            extra_proxy_directives = ""
 
-        conf_content = f"""# NEXA Dynamic Proxy for Site {site_id}: {site_name}
+    # 1. Write subpath proxy
+    subpath_conf = f"""# NEXA Dynamic Proxy for Site {site_id}: {site_name}
 location /proxy/{site_id}/ {{
     proxy_pass {target_url};
     proxy_set_header Host {host_header};
 {extra_proxy_directives}    proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
 }}
 """
-        try:
-            with open(conf_path, "w") as f:
-                f.write(conf_content)
-            print(f"[NginxProxy] Wrote {conf_path} pointing to {target_url}")
-        except Exception as e:
-            print(f"[NginxProxy] Error writing conf {conf_path}: {e}")
+    try:
+        with open(conf_path, "w") as f:
+            f.write(subpath_conf)
+        print(f"[NginxProxy] Wrote subpath conf {conf_path}")
+    except Exception as e:
+        print(f"[NginxProxy] Error writing conf {conf_path}: {e}")
 
+    # 2. Determine Gateway domains to bind at root /
+    gateway_domains = ["nexa-watchtower.duckdns.org"]
+    if domain_clean and (resolved_ip == vm_public_ip or domain_clean.endswith(".duckdns.org")):
+        if domain_clean not in gateway_domains:
+            gateway_domains.append(domain_clean)
+
+    # 3. Generate Root Virtual Host server blocks for the gateway domains
+    server_blocks = []
+    domains_needing_cert = []
+
+    for dom in gateway_domains:
+        cert_path = f"/etc/letsencrypt/live/{dom}/fullchain.pem"
+        key_path = f"/etc/letsencrypt/live/{dom}/privkey.pem"
+        has_ssl = os.path.exists(cert_path) and os.path.exists(key_path)
+
+        ssl_sni_directive = f"        proxy_ssl_name {host_header};\n        proxy_ssl_server_name on;" if is_https_origin else ""
+
+        if has_ssl:
+            block = f"""server {{
+    listen 80;
+    server_name {dom};
+    return 301 https://$host$request_uri;
+}}
+
+server {{
+    listen 443 ssl;
+    server_name {dom};
+
+    ssl_certificate {cert_path};
+    ssl_certificate_key {key_path};
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    location / {{
+        proxy_pass {target_url};
+        proxy_set_header Host {host_header};
+{ssl_sni_directive}
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }}
+}}
+"""
+        else:
+            domains_needing_cert.append(dom)
+            block = f"""server {{
+    listen 80;
+    server_name {dom};
+
+    location / {{
+        proxy_pass {target_url};
+        proxy_set_header Host {host_header};
+{ssl_sni_directive}
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+}}
+"""
+        server_blocks.append(block)
+
+    active_conf_content = f"# NEXA Root Dynamic Proxy for Site {site_id}: {site_name}\n" + "\n".join(server_blocks) + "\n"
+    try:
+        with open(active_conf_path, "w") as f:
+            f.write(active_conf_content)
+        print(f"[NginxProxy] Wrote active root proxy {active_conf_path}")
+    except Exception as e:
+        print(f"[NginxProxy] Error writing active root proxy {active_conf_path}: {e}")
+
+    # 4. Test and reload Nginx
     try:
         subprocess.run(["sudo", "nginx", "-s", "reload"], capture_output=True, timeout=5)
         print(f"[NginxProxy] Reloaded nginx successfully")
     except Exception as e:
         print(f"[NginxProxy] Error reloading nginx: {e}")
+
+    # 5. Automatically run Certbot for any domain needing SSL
+    for dom in domains_needing_cert:
+        try:
+            print(f"[NginxProxy] Requesting Let's Encrypt certificate for {dom}...")
+            cert_cmd = [
+                "sudo", "certbot", "--nginx",
+                "-d", dom,
+                "--non-interactive", "--agree-tos",
+                "--register-unsafely-without-email",
+                "--redirect"
+            ]
+            res = subprocess.run(cert_cmd, capture_output=True, text=True, timeout=30)
+            print(f"[NginxProxy] Certbot finished with code {res.returncode}")
+            if res.returncode == 0:
+                subprocess.run(["sudo", "nginx", "-s", "reload"], capture_output=True, timeout=5)
+        except Exception as e:
+            print(f"[NginxProxy] Certbot error for {dom}: {e}")
 
 
 class SiteListCreateView(generics.ListCreateAPIView):
@@ -598,6 +735,9 @@ class SiteListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         site = serializer.save()
+        RegisteredSite.objects.exclude(id=site.id).update(is_active=False)
+        site.is_active = True
+        site.save(update_fields=['is_active'])
         reload_nginx_proxy(site.id, site.name, site.ip_address, domain=site.domain, remove=False)
 
 
@@ -611,8 +751,15 @@ class SiteDetailView(generics.DestroyAPIView):
         site_name = site.name
         site_ip = site.ip_address
         site_domain = site.domain
+        was_active = site.is_active
         response = super().delete(request, *args, **kwargs)
         reload_nginx_proxy(site_id, site_name, site_ip, domain=site_domain, remove=True)
+        if was_active:
+            next_site = RegisteredSite.objects.first()
+            if next_site:
+                next_site.is_active = True
+                next_site.save(update_fields=['is_active'])
+                reload_nginx_proxy(next_site.id, next_site.name, next_site.ip_address, domain=next_site.domain, remove=False)
         return Response({'status': 'deleted'})
 
 
@@ -633,6 +780,7 @@ class SiteActivateView(APIView):
             RegisteredSite.objects.all().update(is_active=False)
             site.is_active = True
             site.save(update_fields=['is_active'])
+            reload_nginx_proxy(site.id, site.name, site.ip_address, domain=site.domain, remove=False)
             return Response({'status': 'ok', 'active_site': RegisteredSiteSerializer(site).data})
         except RegisteredSite.DoesNotExist:
             return Response({'error': 'Site not found'}, status=404)
