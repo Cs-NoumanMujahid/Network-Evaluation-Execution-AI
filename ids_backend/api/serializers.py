@@ -37,7 +37,7 @@ class AlertSerializer(serializers.ModelSerializer):
 class RegisteredSiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = RegisteredSite
-        fields = ['id', 'name', 'domain', 'ip_address', 'is_active', 'registered_at']
+        fields = ['id', 'name', 'domain', 'ip_address', 'gateway_domain', 'is_active', 'registered_at']
 
 
 class RegisteredDeviceSerializer(serializers.ModelSerializer):

@@ -45,6 +45,7 @@ interface Site {
   name: string;
   domain: string;
   ip_address: string;
+  gateway_domain?: string;
   is_active: boolean;
 }
 
@@ -72,6 +73,7 @@ export default function SourcesPage() {
   const [name, setName] = useState("");
   const [ipAddress, setIpAddress] = useState("");
   const [domain, setDomain] = useState("");
+  const [gatewayDomain, setGatewayDomain] = useState("");
   const [deviceType, setDeviceType] = useState("laptop");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +104,7 @@ export default function SourcesPage() {
     setName("");
     setIpAddress("");
     setDomain("");
+    setGatewayDomain("");
     setDeviceType("laptop");
     setError(null);
   };
@@ -117,7 +120,7 @@ export default function SourcesPage() {
 
     const url = addType === "website" ? `${API_BASE_URL}/sites/` : `${API_BASE_URL}/devices/`;
     const payload = addType === "website"
-      ? { name, domain, ip_address: ipAddress }
+      ? { name, domain, ip_address: ipAddress, gateway_domain: gatewayDomain }
       : { name, ip_address: ipAddress, device_type: deviceType };
 
     try {
@@ -403,19 +406,39 @@ export default function SourcesPage() {
             </div>
 
             {addType === "website" ? (
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Domain
-                </label>
-                <Input
-                  type="text"
-                  placeholder="e.g. website.local"
-                  value={domain}
-                  onChange={(e) => setDomain(e.target.value)}
-                  className="h-9 rounded-xl border-border bg-background text-sm"
-                  required
-                />
-              </div>
+              <>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    Target Website / Origin
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder="e.g. discoverspace.netlify.app"
+                    value={domain}
+                    onChange={(e) => setDomain(e.target.value)}
+                    className="h-9 rounded-xl border-border bg-background text-sm"
+                    required
+                  />
+                  <span className="text-[10px] text-muted-foreground">
+                    The external or internal website to evaluate and protect.
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    Your Gateway Domain (Pointed to VM)
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder="e.g. nexa-new.duckdns.org"
+                    value={gatewayDomain}
+                    onChange={(e) => setGatewayDomain(e.target.value)}
+                    className="h-9 rounded-xl border-border bg-background text-sm"
+                  />
+                  <span className="text-[10px] text-muted-foreground">
+                    Your DuckDNS or custom domain. SSL will be provisioned automatically.
+                  </span>
+                </div>
+              </>
             ) : (
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">

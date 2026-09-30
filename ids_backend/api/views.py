@@ -537,7 +537,7 @@ class AlertListView(generics.ListAPIView):
         return response
 
 
-def reload_nginx_proxy(site_id, site_name, ip_address, domain=None, remove=False):
+def reload_nginx_proxy(site_id, site_name, ip_address, domain=None, gateway_domain=None, remove=False):
     """
     100% Dynamic Reverse Proxy & SSL Manager:
     - Writes subpath proxy: /etc/nginx/nexa_proxies/nexa_site_{site_id}.conf
@@ -560,7 +560,7 @@ def reload_nginx_proxy(site_id, site_name, ip_address, domain=None, remove=False
         if not next_active:
             next_active = RegisteredSite.objects.first()
         if next_active:
-            reload_nginx_proxy(next_active.id, next_active.name, next_active.ip_address, domain=next_active.domain, remove=False)
+            reload_nginx_proxy(next_active.id, next_active.name, next_active.ip_address, domain=next_active.domain, gateway_domain=getattr(next_active, 'gateway_domain', None), remove=False)
             return
         else:
             if os.path.exists(active_conf_path):
@@ -628,10 +628,19 @@ location /proxy/{site_id}/ {{
         print(f"[NginxProxy] Error writing conf {conf_path}: {e}")
 
     # 2. Determine Gateway domains to bind at root /
-    gateway_domains = ["nexa-watchtower.duckdns.org"]
+    gateway_domains = []
+    gateway_clean = str(gateway_domain or '').strip().lower()
+    if gateway_clean:
+        gateway_domains.append(gateway_clean)
+
     if domain_clean and (resolved_ip == vm_public_ip or domain_clean.endswith(".duckdns.org")):
         if domain_clean not in gateway_domains:
             gateway_domains.append(domain_clean)
+
+    # Always ensure known DuckDNS domains are covered
+    for default_dom in ["nexa-new.duckdns.org", "nexa-watchtower.duckdns.org"]:
+        if default_dom not in gateway_domains:
+            gateway_domains.append(default_dom)
 
     # 3. Generate Root Virtual Host server blocks for the gateway domains
     server_blocks = []
@@ -738,7 +747,7 @@ class SiteListCreateView(generics.ListCreateAPIView):
         RegisteredSite.objects.exclude(id=site.id).update(is_active=False)
         site.is_active = True
         site.save(update_fields=['is_active'])
-        reload_nginx_proxy(site.id, site.name, site.ip_address, domain=site.domain, remove=False)
+        reload_nginx_proxy(site.id, site.name, site.ip_address, domain=site.domain, gateway_domain=getattr(site, 'gateway_domain', None), remove=False)
 
 
 class SiteDetailView(generics.DestroyAPIView):
@@ -759,7 +768,7 @@ class SiteDetailView(generics.DestroyAPIView):
             if next_site:
                 next_site.is_active = True
                 next_site.save(update_fields=['is_active'])
-                reload_nginx_proxy(next_site.id, next_site.name, next_site.ip_address, domain=next_site.domain, remove=False)
+                reload_nginx_proxy(next_site.id, next_site.name, next_site.ip_address, domain=next_site.domain, gateway_domain=getattr(next_site, 'gateway_domain', None), remove=False)
         return Response({'status': 'deleted'})
 
 
@@ -780,7 +789,7 @@ class SiteActivateView(APIView):
             RegisteredSite.objects.all().update(is_active=False)
             site.is_active = True
             site.save(update_fields=['is_active'])
-            reload_nginx_proxy(site.id, site.name, site.ip_address, domain=site.domain, remove=False)
+            reload_nginx_proxy(site.id, site.name, site.ip_address, domain=site.domain, gateway_domain=getattr(site, 'gateway_domain', None), remove=False)
             return Response({'status': 'ok', 'active_site': RegisteredSiteSerializer(site).data})
         except RegisteredSite.DoesNotExist:
             return Response({'error': 'Site not found'}, status=404)

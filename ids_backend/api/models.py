@@ -5,6 +5,7 @@ class RegisteredSite(models.Model):
     name = models.CharField(max_length=200)
     domain = models.CharField(max_length=200)
     ip_address = models.GenericIPAddressField()
+    gateway_domain = models.CharField(max_length=255, blank=True, default='')
     registered_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
 
