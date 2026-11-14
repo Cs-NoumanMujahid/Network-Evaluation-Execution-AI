@@ -82,10 +82,47 @@ def _send_group(group, event_type, payload):
     async_to_sync(channel_layer.group_send)(group, {'type': event_type, 'payload': payload})
 
 
+def start_simulation_clients():
+    def _start():
+        try:
+            subprocess.run(["docker", "start", "client1", "client2", "client3"], capture_output=True, timeout=8)
+            print("[SimulationClients] Started client1, client2, client3")
+        except Exception as e:
+            print(f"[SimulationClients] Error starting clients: {e}")
+    threading.Thread(target=_start, daemon=True).start()
+
+
+def stop_simulation_clients():
+    def _stop():
+        try:
+            subprocess.run(["docker", "stop", "client1", "client2", "client3"], capture_output=True, timeout=8)
+            print("[SimulationClients] Stopped client1, client2, client3")
+        except Exception as e:
+            print(f"[SimulationClients] Error stopping clients: {e}")
+    threading.Thread(target=_stop, daemon=True).start()
+
+
+def sync_simulation_clients(site):
+    if not site:
+        stop_simulation_clients()
+        return
+    name = (getattr(site, 'name', '') or "").lower()
+    dom = (getattr(site, 'domain', '') or "").lower()
+    ip = str(getattr(site, 'ip_address', '') or "").strip()
+    is_dvwa = ip == "172.20.0.10" or "dvwa" in name or "dvwa" in dom
+    if is_dvwa:
+        start_simulation_clients()
+    else:
+        stop_simulation_clients()
+
+
 class ScanResetView(APIView):
     def post(self, request):
         try:
             stop_attack_process()
+            from .models import RegisteredSite
+            active_site = RegisteredSite.objects.filter(is_active=True).first()
+            sync_simulation_clients(active_site)
             # Restart ML consumer containers to reset their offsets to 'latest' and discard stale queues
             subprocess.run(['sudo', 'docker', 'restart', 'ml-consumer'], capture_output=True, timeout=5)
             subprocess.run(['sudo', 'docker', 'restart', 'ml-consumer-iot'], capture_output=True, timeout=5)
@@ -575,7 +612,10 @@ def reload_nginx_proxy(site_id, site_name, ip_address, domain=None, gateway_doma
     domain_clean = str(domain or '').strip().lower()
 
     # Determine origin target
-    vm_public_ip = "52.237.82.53"
+    try:
+        vm_public_ip = requests.get("https://api.ipify.org", timeout=2).text.strip()
+    except Exception:
+        vm_public_ip = "52.237.82.53"
     resolved_ip = None
     if domain_clean and not domain_clean.endswith(".local") and not domain_clean.startswith("172."):
         try:
@@ -747,6 +787,7 @@ class SiteListCreateView(generics.ListCreateAPIView):
         RegisteredSite.objects.exclude(id=site.id).update(is_active=False)
         site.is_active = True
         site.save(update_fields=['is_active'])
+        sync_simulation_clients(site)
         reload_nginx_proxy(site.id, site.name, site.ip_address, domain=site.domain, gateway_domain=getattr(site, 'gateway_domain', None), remove=False)
 
 
@@ -768,6 +809,7 @@ class SiteDetailView(generics.DestroyAPIView):
             if next_site:
                 next_site.is_active = True
                 next_site.save(update_fields=['is_active'])
+                sync_simulation_clients(next_site)
                 reload_nginx_proxy(next_site.id, next_site.name, next_site.ip_address, domain=next_site.domain, gateway_domain=getattr(next_site, 'gateway_domain', None), remove=False)
         return Response({'status': 'deleted'})
 
@@ -789,6 +831,7 @@ class SiteActivateView(APIView):
             RegisteredSite.objects.all().update(is_active=False)
             site.is_active = True
             site.save(update_fields=['is_active'])
+            sync_simulation_clients(site)
             reload_nginx_proxy(site.id, site.name, site.ip_address, domain=site.domain, gateway_domain=getattr(site, 'gateway_domain', None), remove=False)
             return Response({'status': 'ok', 'active_site': RegisteredSiteSerializer(site).data})
         except RegisteredSite.DoesNotExist:
