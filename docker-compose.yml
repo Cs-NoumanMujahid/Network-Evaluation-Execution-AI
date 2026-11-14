@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   dvwa:
@@ -41,9 +41,9 @@ services:
       BRIDGE_DEV=\$$(ip route show 172.20.0.0/16 2>/dev/null | awk '{print \$$3}');
       echo \"Detected nexa-net bridge: \$$BRIDGE_DEV\";
       if [ -n \"\$$BRIDGE_DEV\" ]; then
-        tcpdump -i \$$BRIDGE_DEV 'not host 168.63.129.16 and not host 127.0.0.1 and not port 22 and not port 29092 and not port 9092 and not port 9093 and not port 8000 and not port 3000 and not port 3306' -w /pcaps/traffic_br_%Y%m%d_%H%M%S.pcap -G 15 &
+        tcpdump -i \$$BRIDGE_DEV 'not host 168.63.129.16 and not host 127.0.0.1 and not host 172.20.0.50 and not host 172.20.0.201 and not port 22 and not port 29092 and not port 9092 and not port 9093 and not port 8000 and not port 3000 and not port 3306' -w /pcaps/traffic_br_%Y%m%d_%H%M%S.pcap -G 15 &
       fi;
-      tcpdump -i eth0 'not host 168.63.129.16 and not host 127.0.0.1 and not port 22 and not port 29092 and not port 9092 and not port 9093 and not port 8000 and not port 3000 and not port 3306' -w /pcaps/traffic_eth0_%Y%m%d_%H%M%S.pcap -G 15
+      tcpdump -i eth0 'not host 168.63.129.16 and not host 127.0.0.1 and not host 172.20.0.50 and not host 172.20.0.201 and not port 22 and not port 29092 and not port 9092 and not port 9093 and not port 8000 and not port 3000 and not port 3306' -w /pcaps/traffic_eth0_%Y%m%d_%H%M%S.pcap -G 15
       "
 
   client1:
@@ -123,6 +123,9 @@ services:
       done
       "
 
+  # Website lane ONLY (pcaps -> flows for the CNN model). The IoT/camera + test
+  # lanes moved to the `cicflowmeter_iot` service below, which normalizes feature
+  # values to the new XGBoost model's dataset.
   cicflow:
     build: ./cicflowmeter
     container_name: cicflowmeter
@@ -133,11 +136,43 @@ services:
       - ./process_pcaps.sh:/app/process_pcaps.sh:ro
     working_dir: /app
     entrypoint: ["/bin/sh"]
-    command: ["/app/process_pcaps.sh"]
+    command:
+      [
+        "-c",
+        "cp /app/process_pcaps.sh /tmp/run.sh && sed -i 's/\\r$//' /tmp/run.sh && /bin/sh /tmp/run.sh",
+      ]
+
     depends_on:
       - sniffer
     networks:
       - nexa-net
+    restart: unless-stopped
+
+  # IoT/camera + test lanes converter. Runs the same CICFlowMeter-4.0 jar as
+  # `cicflow`, but then NORMALIZES each CSV (normalize_iot_flows.sh) so feature
+  # values match the new model's training dataset (Active/Idle us->s; Std/Min->0).
+  # No `depends_on: sniffer` — the camera feeds pcaps_iot and iot-victim
+  # self-captures pcaps_iot_test.
+  cicflowmeter_iot:
+    build: ./cicflowmeter
+    container_name: cicflowmeter_iot
+    volumes:
+      - ./pcaps_iot:/pcaps_iot:ro
+      - ./flows_iot:/flows_iot
+      - ./pcaps_iot_test:/pcaps_iot_test:ro
+      - ./flows_iot_test:/flows_iot_test
+      - ./process_pcaps_iot.sh:/app/process_pcaps_iot.sh:ro
+      - ./cicflowmeter_iot/normalize_iot_flows.sh:/app/normalize_iot_flows.sh:ro
+    working_dir: /app
+    entrypoint: ["/bin/sh"]
+    command:
+      [
+        "-c",
+        "cp /app/process_pcaps_iot.sh /tmp/run_iot.sh && sed -i 's/\\r$//' /tmp/run_iot.sh && cp /app/normalize_iot_flows.sh /tmp/normalize.sh && sed -i 's/\\r$//' /tmp/normalize.sh && NORMALIZER=/tmp/normalize.sh /bin/sh /tmp/run_iot.sh",
+      ]
+    networks:
+      - nexa-net
+    restart: unless-stopped
 
   kafka:
     image: confluentinc/cp-kafka:7.8.0
@@ -145,18 +180,18 @@ services:
     restart: unless-stopped
     environment:
       KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: 'broker,controller'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
-      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:9092'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092'
-      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
-      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:9092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     ports:
       - "127.0.0.1:9092:9092"
     volumes:
@@ -164,7 +199,11 @@ services:
     networks:
       - nexa-net
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1",
+        ]
       interval: 10s
       timeout: 10s
       retries: 10
@@ -176,11 +215,17 @@ services:
     environment:
       KAFKA_BROKER: kafka:29092
       KAFKA_TOPIC: flows
+      KAFKA_IOT_TOPIC: flows_iot
+      KAFKA_TEST_TOPIC: flows_iot_test
       FLOWS_DIR: /flows
+      FLOWS_IOT_DIR: /flows_iot
+      FLOWS_TEST_DIR: /flows_iot_test
       BATCH_SIZE: 5
       SCAN_INTERVAL: 2
     volumes:
       - ./flows:/flows:ro
+      - ./flows_iot:/flows_iot:ro
+      - ./flows_iot_test:/flows_iot_test:ro
     depends_on:
       kafka:
         condition: service_healthy
@@ -202,7 +247,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./ml_consumer/model:/app/model:ro
+      # Models are baked into the image (see ml_consumer/Dockerfile); only the
+      # shared consumer code stays bind-mounted so it remains live-editable.
       - ./ml_consumer/consumer.py:/app/consumer.py:ro
     depends_on:
       kafka:
@@ -228,7 +274,37 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./ml_consumer/model:/app/model:ro
+      # Models are baked into the image (see ml_consumer/Dockerfile); only the
+      # shared consumer code stays bind-mounted so it remains live-editable.
+      - ./ml_consumer/consumer.py:/app/consumer.py:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - nexa-net
+    restart: unless-stopped
+
+  # ── IoT ML Consumer (Test Lane) ───────────────────────────────────────────
+  # Runs the TON-IoT model on the ISOLATED simulation test lane (flows_iot_test).
+  # Keeps the Simulation Lab's home-network scenarios off the real device lane.
+  ml-consumer-iot-test:
+    build: ./ml_consumer
+    container_name: ml-consumer-iot-test
+    environment:
+      - KAFKA_BROKER=kafka:29092
+      - KAFKA_TOPIC=flows_iot_test
+      - CONFIDENCE_THRESHOLD=0.80
+      - BACKEND_URL=${NEXA_BACKEND_URL:-http://host.docker.internal:8000}
+      # iot_test keeps simulation results out of the real home_network dashboard
+      # while still using the IoT model (consumer picks it whenever != website).
+      - SOURCE_TYPE=iot_test
+      - REGISTERED_ID=1
+      - HEALTH_INTERVAL=60
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Models are baked into the image (see ml_consumer/Dockerfile); only the
+      # shared consumer code stays bind-mounted so it remains live-editable.
       - ./ml_consumer/consumer.py:/app/consumer.py:ro
     depends_on:
       kafka:
@@ -249,6 +325,43 @@ services:
     volumes:
       - ./kali_attacks:/attacks
     command: tail -f /dev/null
+
+  # ── IoT Attacker ──────────────────────────────────────────────────────────
+  # Dedicated attacker box for home-network scenarios (runs iot_attacks/*.sh via
+  # docker exec). Kept separate from kali-attacker, which is web-only.
+  iot-attacker:
+    build: ./iot_attacker
+    container_name: iot-attacker
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.201
+    depends_on:
+      - iot-victim
+    volumes:
+      - ./iot_attacks:/iot_attacks
+      # New-model test-attack suite (9 scenarios) launched by the Simulation Lab
+      - ./attack_simulation:/attack_simulation
+    command: tail -f /dev/null
+    restart: unless-stopped
+
+  # ── IoT Victim Device ─────────────────────────────────────────────────────
+  # Simulated IoT device target. Self-captures its own traffic into the ISOLATED
+  # ./pcaps_iot_test folder (processed by cicflow, never feeds the live pipeline).
+  iot-victim:
+    build: ./iot_victim
+    container_name: iot-victim
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.50
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./pcaps_iot_test:/pcaps_iot_test
+    restart: unless-stopped
 
   nexa-frontend:
     build: ./nexa_frontend

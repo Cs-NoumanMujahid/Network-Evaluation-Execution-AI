@@ -45,10 +45,16 @@ def _source_type(request):
     return request.query_params.get('source_type')
 
 
+def _active_device_ids():
+    return [str(i) for i in RegisteredDevice.objects.filter(is_active=True).values_list('id', flat=True)]
+
+
 def _filter_by_source_and_site(request, qs):
     source_type = _source_type(request)
     if source_type:
         qs = qs.filter(source_type=source_type)
+    if source_type == 'home_network':
+        qs = qs.filter(registered_id__in=_active_device_ids())
     registered_id = request.query_params.get('registered_id') or request.query_params.get('site_id')
     if registered_id and str(registered_id).lower() not in ('all', '0', 'none', ''):
         try:
@@ -78,8 +84,16 @@ def _filter_by_source_and_site(request, qs):
 
 
 def _send_group(group, event_type, payload):
-    channel_layer = get_channel_layer()
-    async_to_sync(channel_layer.group_send)(group, {'type': event_type, 'payload': payload})
+    # Best-effort WebSocket broadcast. On Windows the dev server can raise
+    # OSError [WinError 6] from async_to_sync; never let a broadcast failure 500
+    # the caller (e.g. /api/flows/ingest/). DB writes are already committed by the
+    # time this runs, and SimulationConsumer.push_periodic re-reads and delivers
+    # them every ~2s, so the UI still updates.
+    try:
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(group, {'type': event_type, 'payload': payload})
+    except Exception as e:
+        print(f"[_send_group] broadcast skipped ({group}): {e}")
 
 
 def start_simulation_clients():
@@ -189,6 +203,7 @@ class FlowIngestView(APIView):
         print(f"DEBUG: Ingesting flows at {now}")
         saved = 0
         alert_count = 0
+        created_flows = []
 
         from .models import WhitelistedIP, BlockedIP
         whitelisted_ips = set(WhitelistedIP.objects.values_list('ip', flat=True))
@@ -210,6 +225,13 @@ class FlowIngestView(APIView):
         SYSTEM_PORTS = {22, 29092, 9092, 9093, 8000, 3000, 3306}
         SYSTEM_IPS = {'168.63.129.16', '127.0.0.1'}
 
+        # Skip the gateway (Windows ICS host): every device talks to it, so matching it would let unregistered devices in.
+        device_ip_map = {
+            device.ip_address: str(device.id)
+            for device in RegisteredDevice.objects.filter(is_active=True)
+            if device.ip_address != '192.168.137.1'
+        }
+
         for item in flows:
             src_ip = item.get('src_ip')
             dst_ip = item.get('dst_ip')
@@ -223,16 +245,29 @@ class FlowIngestView(APIView):
             if src_ip and src_ip in blocked_ips:
                 continue
 
-            item['timestamp'] = now
-            matched_site_id = site_ip_map.get(dst_ip) or site_ip_map.get(src_ip)
-            if matched_site_id:
-                item['registered_id'] = matched_site_id
-            elif item.get('registered_id') and str(item['registered_id']).lower() not in ('none', 'null', ''):
-                pass
-            elif (src_ip and src_ip.startswith('172.20.')) or (dst_ip and dst_ip.startswith('172.20.')):
-                item['registered_id'] = '1'
+            # Keep the real capture time the consumer sent; only fall back to the
+            # ingest time if a flow arrived without a usable timestamp.
+            if not item.get('timestamp'):
+                item['timestamp'] = now
+            if item.get('source_type') == 'home_network':
+                matched_device_id = device_ip_map.get(src_ip) or device_ip_map.get(dst_ip)
+                if not matched_device_id:
+                    continue
+                item['registered_id'] = matched_device_id
+            elif item.get('source_type') == 'iot_test':
+                # Simulation test lane: accept unconditionally (no registered
+                # device required) and keep it out of the real home_network views.
+                item['registered_id'] = device_ip_map.get(src_ip) or device_ip_map.get(dst_ip) or None
             else:
-                item['registered_id'] = None
+                matched_site_id = site_ip_map.get(dst_ip) or site_ip_map.get(src_ip)
+                if matched_site_id:
+                    item['registered_id'] = matched_site_id
+                elif item.get('registered_id') and str(item['registered_id']).lower() not in ('none', 'null', ''):
+                    pass
+                elif (src_ip and src_ip.startswith('172.20.')) or (dst_ip and dst_ip.startswith('172.20.')):
+                    item['registered_id'] = '1'
+                else:
+                    item['registered_id'] = None
 
             if src_ip and src_ip in whitelisted_ips:
                 item['is_alert'] = False
@@ -240,6 +275,7 @@ class FlowIngestView(APIView):
                 item['severity'] = 'NORMAL'
 
             flow = FlowRecord.objects.create(**item)
+            created_flows.append(flow)
             saved += 1
             if flow.is_alert:
                 Incident.objects.create(
@@ -257,11 +293,13 @@ class FlowIngestView(APIView):
                     pass
 
 
-        total_flows = FlowRecord.objects.count()
-        total_alerts = FlowRecord.objects.filter(is_alert=True).count()
-        active_alerts = Incident.objects.filter(status='open').count()
-        resolved_alerts = Incident.objects.filter(status='resolved').count()
-        benign_flows = FlowRecord.objects.filter(is_alert=False).count()
+        # Exclude the simulation test lane (iot_test) from global dashboard numbers.
+        real_flows = FlowRecord.objects.exclude(source_type='iot_test')
+        total_flows = real_flows.count()
+        total_alerts = real_flows.filter(is_alert=True).count()
+        active_alerts = Incident.objects.filter(status='open').exclude(flow__source_type='iot_test').count()
+        resolved_alerts = Incident.objects.filter(status='resolved').exclude(flow__source_type='iot_test').count()
+        benign_flows = real_flows.filter(is_alert=False).count()
         threat_rate = (total_alerts / total_flows * 100) if total_flows else 0.0
         payload = {
             'type': 'dashboard_update',
@@ -272,41 +310,46 @@ class FlowIngestView(APIView):
             'benign_flows': benign_flows,
             'detection_rate': round(threat_rate, 2),
             'latest_alerts': list(
-                FlowRecord.objects.filter(is_alert=True).order_by('-timestamp')[:10].values(
+                real_flows.filter(is_alert=True).order_by('-timestamp')[:10].values(
                     'timestamp', 'prediction', 'severity', 'src_ip', 'dst_ip', 'confidence'
                 )
             ),
         }
         _send_group('dashboard', 'dashboard_broadcast', payload)
 
-        # Update active simulation session stats if one is running
+        # Update the running simulation session (hard stop: no post-stop grace).
+        # Scope to the session's lane so e.g. website client traffic never leaks
+        # into a home-network (iot_test) run and vice-versa.
         session = SimulationSession.objects.filter(status='running').first()
         if session:
-            session.flows_generated += saved
-            session.alerts_triggered += alert_count
-            session.save(update_fields=['flows_generated', 'alerts_triggered'])
+            matched = [f for f in created_flows if f.source_type == session.source_type]
+            if matched:
+                session.flows_generated += len(matched)
+                session.alerts_triggered += sum(1 for f in matched if f.is_alert)
+                session.save(update_fields=['flows_generated', 'alerts_triggered'])
 
-            # Send immediate live update to simulation websocket group
-            latest_flow = None
-            if saved > 0:
-                # Get the last flow in this batch
+                last = matched[-1]
+                # last.timestamp may be a datetime or the raw ISO string the
+                # consumer sent (create() does not coerce the in-memory attr), so
+                # serialize defensively — otherwise this raises and the
+                # simulation_update broadcast below never fires.
+                _ts = last.timestamp
                 latest_flow = {
-                    'id': flow.id,
-                    'src_ip': flow.src_ip,
-                    'dst_ip': flow.dst_ip,
-                    'prediction': flow.prediction,
-                    'confidence': flow.confidence,
-                    'severity': flow.severity,
-                    'timestamp': flow.timestamp.isoformat()
+                    'id': last.id,
+                    'src_ip': last.src_ip,
+                    'dst_ip': last.dst_ip,
+                    'prediction': last.prediction,
+                    'confidence': last.confidence,
+                    'severity': last.severity,
+                    'timestamp': _ts.isoformat() if hasattr(_ts, 'isoformat') else str(_ts)
                 }
-
-            _send_group('simulation', 'simulation_broadcast', {
-                'type': 'simulation_update',
-                'is_running': True,
-                'latest_flow': latest_flow,
-                'flows_generated': session.flows_generated,
-                'alerts_triggered': session.alerts_triggered,
-            })
+                _send_group('simulation', 'simulation_broadcast', {
+                    'type': 'simulation_update',
+                    'is_running': session.status == 'running',
+                    'latest_flow': latest_flow,
+                    'flows_generated': session.flows_generated,
+                    'alerts_triggered': session.alerts_triggered,
+                })
 
         return Response({'status': 'ok', 'saved': saved})
 
@@ -331,6 +374,8 @@ class DashboardStatsView(APIView):
         registered_id = request.query_params.get('registered_id') or request.query_params.get('site_id')
         if source_type:
             incident_qs = incident_qs.filter(flow__source_type=source_type)
+        if source_type == 'home_network':
+            incident_qs = incident_qs.filter(flow__registered_id__in=_active_device_ids())
         if registered_id and str(registered_id).lower() not in ('all', '0', 'none', ''):
             try:
                 from .models import RegisteredSite
@@ -522,6 +567,14 @@ class ThreatBreakdownView(APIView):
 class PipelineStatusView(APIView):
     def get(self, request):
         health = SystemHealth.objects.first()
+        flows_per_minute = health.flows_per_minute if health else 0
+        alerts_per_minute = health.alerts_per_minute if health else 0
+        # Both consumers report into the same SystemHealth rows, so per-source rates come from saved flows.
+        if _source_type(request):
+            recent = FlowRecord.objects.filter(created_at__gte=timezone.now() - timedelta(minutes=1))
+            recent = _filter_by_source_and_site(request, recent)
+            flows_per_minute = recent.count()
+            alerts_per_minute = recent.filter(is_alert=True).count()
         if not health:
             return Response(
                 {
@@ -529,21 +582,21 @@ class PipelineStatusView(APIView):
                     'ml_consumer': {'status': False, 'label': 'Down', 'last_seen': None},
                     'cicflowmeter': {'status': False, 'label': 'Down'},
                     'tcpdump': {'status': False, 'label': 'Down'},
-                    'flows_per_minute': 0,
-                    'alerts_per_minute': 0,
+                    'flows_per_minute': flows_per_minute,
+                    'alerts_per_minute': alerts_per_minute,
                 }
             )
         ml_seen = health.timestamp
         ml_ok = bool(health.ml_consumer_status and ml_seen and ml_seen > timezone.now() - timedelta(minutes=2))
-        
+
         return Response(
             {
                 'kafka': {'status': ml_ok, 'label': 'Running' if ml_ok else 'Down'},
                 'ml_consumer': {'status': ml_ok, 'label': 'Running' if ml_ok else 'Down', 'last_seen': ml_seen},
                 'cicflowmeter': {'status': ml_ok, 'label': 'Running' if ml_ok else 'Down'},
                 'tcpdump': {'status': ml_ok, 'label': 'Running' if ml_ok else 'Down'},
-                'flows_per_minute': health.flows_per_minute,
-                'alerts_per_minute': health.alerts_per_minute,
+                'flows_per_minute': flows_per_minute,
+                'alerts_per_minute': alerts_per_minute,
             }
         )
 
@@ -553,7 +606,12 @@ class AlertListView(generics.ListAPIView):
     pagination_class = LimitPagination
 
     def get_queryset(self):
-        qs = FlowRecord.objects.filter(is_alert=True).order_by('-timestamp')
+        # Alerts-only by default (dashboard card, existing callers). Opt into
+        # include_benign=true to list benign flows too (e.g. the Alerts page's
+        # "All traffic" view), so the model's benign classifications are visible.
+        include_benign = self.request.query_params.get('include_benign') == 'true'
+        base = FlowRecord.objects.all() if include_benign else FlowRecord.objects.filter(is_alert=True)
+        qs = base.order_by('-timestamp')
         severity = self.request.query_params.get('severity')
         prediction = self.request.query_params.get('prediction')
         qs = _filter_by_source_and_site(self.request, qs)
@@ -988,9 +1046,25 @@ class SimulationStartView(APIView):
     def post(self, request):
         attack_type = request.data.get('attack_type')
         target = request.data.get('target')
-        session = SimulationSession.objects.create(attack_type=attack_type, status='running')
-        threading.Thread(target=start_attack_process, args=(attack_type, target), daemon=True).start()
-        return Response({'status': 'started', 'session_id': session.id, 'attack_type': attack_type, 'target': target})
+        intensity = request.data.get('intensity')
+        duration = request.data.get('duration')
+        source_type = request.data.get('source_type') or 'website'
+        session = SimulationSession.objects.create(
+            attack_type=attack_type, status='running', source_type=source_type
+        )
+        threading.Thread(
+            target=start_attack_process,
+            args=(attack_type, target, intensity, duration),
+            daemon=True,
+        ).start()
+        return Response({
+            'status': 'started',
+            'session_id': session.id,
+            'attack_type': attack_type,
+            'target': target,
+            'intensity': intensity,
+            'duration': duration,
+        })
 
 
 class SimulationStatusView(APIView):
@@ -1028,7 +1102,7 @@ class SimulationLiveFeedView(APIView):
         session = SimulationSession.objects.filter(status='running').first()
         qs = FlowRecord.objects.order_by('-timestamp')
         if session:
-            qs = qs.filter(timestamp__gte=session.started_at)
+            qs = qs.filter(timestamp__gte=session.started_at, source_type=session.source_type)
         flows = list(qs[:20].values('timestamp', 'src_ip', 'dst_ip', 'prediction', 'confidence', 'severity'))
         return Response({'flows': flows})
 
@@ -1087,6 +1161,8 @@ class IncidentTimelineView(APIView):
         registered_id = request.query_params.get('registered_id') or request.query_params.get('site_id')
         if source_type:
             qs = qs.filter(flow__source_type=source_type)
+        if source_type == 'home_network':
+            qs = qs.filter(flow__registered_id__in=_active_device_ids())
         if registered_id and str(registered_id).lower() not in ('all', '0', 'none', ''):
             try:
                 from .models import RegisteredSite

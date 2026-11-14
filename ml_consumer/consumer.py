@@ -15,6 +15,9 @@ from tensorflow.keras.models import load_model
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:29092")
 TOPIC = os.getenv("KAFKA_TOPIC", "flows")
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.80"))
+# IoT lane: if the model's top-class confidence is below this, the flow likely
+# isn't one of the trained classes -> flag it as a possible zero-day ("Unknown").
+ZERO_DAY_THRESHOLD = float(os.getenv("ZERO_DAY_THRESHOLD", "0.30"))
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 SOURCE_TYPE = os.getenv("SOURCE_TYPE", "website")
 REGISTERED_ID = os.getenv("REGISTERED_ID", "1")
@@ -58,19 +61,13 @@ RECOMMENDED_ACTIONS_IOT = {
     "backdoor": "Immediately isolate affected device. Perform factory reset. Update firmware. Review network logs.",
     "ransomware": "Disconnect affected devices immediately. Do not pay ransom. Restore from backup. Report to authorities.",
     "mitm": "Enable encrypted communications on all IoT devices. Implement certificate pinning. Review ARP tables.",
+    "Unknown": "Possible zero-day / novel traffic (model not confident in any known class). Isolate the device and capture full traffic for analysis.",
 }
 
 # ── IOT LABEL MAPPING ─────────────────────────────────────────────────────────
-# Verified from nexa-xgbclassifier.ipynb notebook
-# attack_encoded values confirmed from value_counts()
-
-IOT_LABEL_MAPPING = {
-    0: "Benign",
-    1: "Reconnaissance & Access Attack",
-    2: "backdoor",
-    3: "mitm",
-    4: "ransomware"
-}
+# The new multiclass model emits label NAMES directly via the paired
+# label_encoder.pkl: label_encoder.inverse_transform(model.predict(X)). No
+# hardcoded index->name table is needed (see the IoT branch below).
 
 # ── RAW COLUMNS (CICFlowMeter output) ─────────────────────────────────────────
 
@@ -125,27 +122,31 @@ WEBSITE_FEATURE_COLS = [
 
 # ── IOT MODEL FEATURES ────────────────────────────────────────────────────────
 
+# 73 features in the EXACT order of the new model's feature_names_in_. XGBoost is
+# fed a DataFrame with these column names, so predict_iot aligns by name. This is
+# a reordered subset of the old 77 (dropped: Fwd Pkts/s, Bwd Pkts/s,
+# Fwd Act Data Pkts, Fwd Seg Size Min); all 73 are still produced by
+# CICFLOW_TO_TONIOT below.
 IOT_FEATURE_COLS = [
     'Protocol', 'Flow Duration', 'Tot Fwd Pkts', 'Tot Bwd Pkts',
     'TotLen Fwd Pkts', 'TotLen Bwd Pkts', 'Fwd Pkt Len Max',
     'Fwd Pkt Len Min', 'Fwd Pkt Len Mean', 'Fwd Pkt Len Std',
     'Bwd Pkt Len Max', 'Bwd Pkt Len Min', 'Bwd Pkt Len Mean',
-    'Bwd Pkt Len Std', 'Flow Byts/s', 'Flow Pkts/s', 'Flow IAT Mean',
-    'Flow IAT Std', 'Flow IAT Max', 'Flow IAT Min', 'Fwd IAT Tot',
-    'Fwd IAT Mean', 'Fwd IAT Std', 'Fwd IAT Max', 'Fwd IAT Min',
-    'Bwd IAT Tot', 'Bwd IAT Mean', 'Bwd IAT Std', 'Bwd IAT Max',
-    'Bwd IAT Min', 'Fwd PSH Flags', 'Bwd PSH Flags', 'Fwd URG Flags',
-    'Bwd URG Flags', 'Fwd Header Len', 'Bwd Header Len', 'Fwd Pkts/s',
-    'Bwd Pkts/s', 'Pkt Len Min', 'Pkt Len Max', 'Pkt Len Mean',
-    'Pkt Len Std', 'Pkt Len Var', 'FIN Flag Cnt', 'SYN Flag Cnt',
+    'Bwd Pkt Len Std', 'Pkt Len Min', 'Pkt Len Max', 'Pkt Len Mean',
+    'Pkt Len Std', 'Pkt Len Var', 'Flow Pkts/s', 'Flow Byts/s',
+    'Flow IAT Mean', 'Flow IAT Std', 'Flow IAT Max', 'Flow IAT Min',
+    'Fwd IAT Tot', 'Fwd IAT Mean', 'Fwd IAT Std', 'Fwd IAT Max',
+    'Fwd IAT Min', 'Bwd IAT Tot', 'Bwd IAT Mean', 'Bwd IAT Std',
+    'Bwd IAT Max', 'Bwd IAT Min', 'Fwd PSH Flags', 'Bwd PSH Flags',
+    'Fwd URG Flags', 'Bwd URG Flags', 'FIN Flag Cnt', 'SYN Flag Cnt',
     'RST Flag Cnt', 'PSH Flag Cnt', 'ACK Flag Cnt', 'URG Flag Cnt',
     'CWE Flag Count', 'ECE Flag Cnt', 'Down/Up Ratio', 'Pkt Size Avg',
-    'Fwd Seg Size Avg', 'Bwd Seg Size Avg', 'Fwd Byts/b Avg',
-    'Fwd Pkts/b Avg', 'Fwd Blk Rate Avg', 'Bwd Byts/b Avg',
-    'Bwd Pkts/b Avg', 'Bwd Blk Rate Avg', 'Subflow Fwd Pkts',
-    'Subflow Fwd Byts', 'Subflow Bwd Pkts', 'Subflow Bwd Byts',
-    'Init Fwd Win Byts', 'Init Bwd Win Byts', 'Fwd Act Data Pkts',
-    'Fwd Seg Size Min', 'Active Mean', 'Active Std', 'Active Max',
+    'Fwd Seg Size Avg', 'Bwd Seg Size Avg', 'Fwd Header Len',
+    'Bwd Header Len', 'Fwd Byts/b Avg', 'Fwd Pkts/b Avg',
+    'Fwd Blk Rate Avg', 'Bwd Byts/b Avg', 'Bwd Pkts/b Avg',
+    'Bwd Blk Rate Avg', 'Subflow Fwd Pkts', 'Subflow Fwd Byts',
+    'Subflow Bwd Pkts', 'Subflow Bwd Byts', 'Init Fwd Win Byts',
+    'Init Bwd Win Byts', 'Active Mean', 'Active Std', 'Active Max',
     'Active Min', 'Idle Mean', 'Idle Std', 'Idle Max', 'Idle Min'
 ]
 
@@ -251,15 +252,15 @@ if SOURCE_TYPE == "website":
 
 else:
     print("Loading IoT XGBoost model...")
-    with open("/app/model/nexa_xgb_model.pkl", "rb") as f:
-        iot_model = pickle.load(f)
+    iot_model = joblib.load("/app/model/multiclass_xgb_model.pkl")
 
-    print("Loading IoT scaler...")
-    iot_scaler = joblib.load("/app/model/nexa_scalar.pkl")
+    # Paired LabelEncoder: model.predict() returns class indices [0..9] and
+    # iot_encoder.inverse_transform(...) turns them into display names directly.
+    # This is a tree model trained on raw features, so there is NO scaler.
+    iot_encoder = joblib.load("/app/model/label_encoder.pkl")
 
-    # Note: label encoder not used — using verified manual mapping instead
     print("IoT model loaded!")
-    print(f"IoT classes: {list(IOT_LABEL_MAPPING.values())}")
+    print(f"IoT classes: {list(iot_encoder.classes_)}")
 
 print(f"Backend URL: {BACKEND_URL}")
 print(f"Confidence threshold: {CONFIDENCE_THRESHOLD}")
@@ -445,7 +446,9 @@ def predict_website(df_features, metadata):
     return results
 
 def predict_iot(df_features, metadata):
-    X = iot_scaler.transform(df_features[IOT_FEATURE_COLS])
+    # Tree model on raw features: no scaling. Pass a named DataFrame so XGBoost
+    # aligns columns by feature_names_in_ regardless of order.
+    X = df_features[IOT_FEATURE_COLS]
     predictions = iot_model.predict(X)
 
     try:
@@ -454,8 +457,8 @@ def predict_iot(df_features, metadata):
     except:
         confidences = np.ones(len(predictions))
 
-    # Use verified manual mapping instead of broken encoder
-    labels = [IOT_LABEL_MAPPING.get(int(p), "Unknown") for p in predictions]
+    # The paired encoder maps model class indices straight to display names.
+    labels = list(iot_encoder.inverse_transform(predictions))
 
     results = []
     now = datetime.now(timezone.utc)
@@ -483,8 +486,17 @@ def predict_iot(df_features, metadata):
             label = "Benign"
             conf = 1.0
 
-        is_alert = label != "Benign" and float(conf) >= CONFIDENCE_THRESHOLD
-        severity = get_severity(label, float(conf))
+        # Zero-day: the model is not confident about ANY class (top-class conf is
+        # below the threshold), so the flow likely isn't one of the trained classes.
+        # Relabel as "Unknown" and tag it as a zero-day alert. Whitelisted IPs are
+        # excluded (their conf was forced to 1.0 above).
+        if float(conf) < ZERO_DAY_THRESHOLD:
+            label = "Unknown"
+            is_alert = True
+            severity = "ZERO-DAY"
+        else:
+            is_alert = label != "Benign" and float(conf) >= CONFIDENCE_THRESHOLD
+            severity = get_severity(label, float(conf))
         results.append(_build_result(label, conf, is_alert, severity, meta, now))
 
     return results
@@ -536,7 +548,7 @@ def send_to_backend(results):
     try:
         response = requests.post(
             f"{BACKEND_URL}/api/flows/ingest/",
-            json={"flows": results},
+            json={"source_type": SOURCE_TYPE, "flows": results},
             timeout=10
         )
         if response.status_code != 200:
