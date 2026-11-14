@@ -146,7 +146,6 @@ services:
       - sniffer
     networks:
       - nexa-net
-    restart: unless-stopped
 
   # IoT/camera + test lanes converter. Runs the same CICFlowMeter-4.0 jar as
   # `cicflow`, but then NORMALIZES each CSV (normalize_iot_flows.sh) so feature
