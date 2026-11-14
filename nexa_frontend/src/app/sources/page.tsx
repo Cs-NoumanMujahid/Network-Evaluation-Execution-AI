@@ -383,7 +383,7 @@ export default function SourcesPage() {
               </label>
               <Input
                 type="text"
-                placeholder="e.g. My Website"
+                placeholder={addType === "website" ? "e.g. My Website" : "e.g. IP Camera"}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="h-9 rounded-xl border-border bg-background text-sm"
@@ -397,7 +397,7 @@ export default function SourcesPage() {
               </label>
               <Input
                 type="text"
-                placeholder="e.g. 192.168.1.100"
+                placeholder={addType === "website" ? "e.g. 52.74.6.109" : "e.g. 192.168.2.2"}
                 value={ipAddress}
                 onChange={(e) => setIpAddress(e.target.value)}
                 className="h-9 rounded-xl border-border bg-background text-sm font-mono"
