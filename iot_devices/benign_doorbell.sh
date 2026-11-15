@@ -29,10 +29,11 @@ rnd() { awk "BEGIN{srand();print int(rand()*$1)+1}"; }
         "https://$PEER/status" >/dev/null 2>&1
   done ) &
 
-# Clip / live-view pull — download-dominant, every ~120-240s.
+# Periodic config/status pull — kept SMALL (no bulk clip download) so flows stay in
+# the dataset's benign byte range, every ~120-240s.
 ( while true; do
     sleep $((120 + $(rnd 120)))
-    curl -sk --max-time 20 "https://$PEER/clip.bin" >/dev/null 2>&1
+    curl -sk --max-time 10 "https://$PEER/status" >/dev/null 2>&1
   done ) &
 
 wait

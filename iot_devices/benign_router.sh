@@ -34,10 +34,11 @@ rnd() { awk "BEGIN{srand();print int(rand()*$1)+1}"; }
     curl -s --max-time 15 "http://$PEER/index.html" >/dev/null 2>&1
   done ) &
 
-# Throughput sample — download capped to ~10 Mbps (1250 kB/s), every ~180-360s.
+# Periodic status/config pull — kept SMALL (no bulk firmware download) so flows stay
+# in the dataset's benign byte range, every ~180-360s.
 ( while true; do
     sleep $((180 + $(rnd 180)))
-    curl -s --max-time 60 --limit-rate 1250k "http://$PEER/fw.bin" >/dev/null 2>&1
+    curl -s --max-time 10 "http://$PEER/status" >/dev/null 2>&1
   done ) &
 
 wait
