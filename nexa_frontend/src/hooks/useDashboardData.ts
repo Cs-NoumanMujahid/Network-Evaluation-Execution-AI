@@ -229,7 +229,7 @@ const MOCK_DATA = {
 
 export const useDashboardData = (options?: { includeBenign?: boolean }) => {
   const includeBenign = options?.includeBenign ?? false;
-  const { sourceType, activeSite } = useSource();
+  const { sourceType, activeSite, activeDevice } = useSource();
 
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [attackTypes, setAttackTypes] = useState<AttackTypesData | null>(null);
@@ -256,7 +256,14 @@ export const useDashboardData = (options?: { includeBenign?: boolean }) => {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const siteParam = sourceType === "website" && activeSite ? `&registered_id=${activeSite.id}` : "";
+    // Scope the dashboard to the active entity: a website target (activeSite) or
+    // a home-network device (activeDevice). Both filter the backend by registered_id.
+    const siteParam =
+      sourceType === "website" && activeSite
+        ? `&registered_id=${activeSite.id}`
+        : sourceType === "home_network" && activeDevice
+          ? `&registered_id=${activeDevice.id}`
+          : "";
     try {
       const [
         statsRes,
@@ -274,7 +281,7 @@ export const useDashboardData = (options?: { includeBenign?: boolean }) => {
         fetch(`${API_BASE_URL}/dashboard/traffic-volume/?source_type=${sourceType}&minutes=60${siteParam}`).catch(() => null),
         fetch(`${API_BASE_URL}/dashboard/top-attackers/?source_type=${sourceType}&limit=5${siteParam}`).catch(() => null),
         fetch(`${API_BASE_URL}/dashboard/top-targets/?source_type=${sourceType}&limit=5${siteParam}`).catch(() => null),
-        fetch(`${API_BASE_URL}/dashboard/pipeline-status/?source_type=${sourceType}`).catch(() => null),
+        fetch(`${API_BASE_URL}/dashboard/pipeline-status/?source_type=${sourceType}${siteParam}`).catch(() => null),
         fetch(`${API_BASE_URL}/alerts/?source_type=${sourceType}&page=${page}&limit=${pageSize}${siteParam}${includeBenign ? "&include_benign=true" : ""}`).catch(() => null),
       ]);
 
@@ -298,7 +305,7 @@ export const useDashboardData = (options?: { includeBenign?: boolean }) => {
     } finally {
       setLoading(false);
     }
-  }, [sourceType, activeSite, page, pageSize, includeBenign, applyMockData]);
+  }, [sourceType, activeSite, activeDevice, page, pageSize, includeBenign, applyMockData]);
 
   useEffect(() => {
     fetchData();

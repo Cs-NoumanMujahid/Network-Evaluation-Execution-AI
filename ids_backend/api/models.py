@@ -19,6 +19,7 @@ class RegisteredDevice(models.Model):
         ('phone', 'Mobile Phone'),
         ('router', 'Router'),
         ('doorbell', 'IP Doorbell'),
+        ('lan', 'LAN / Network'),
         ('other', 'Other'),
     ]
     name = models.CharField(max_length=200)

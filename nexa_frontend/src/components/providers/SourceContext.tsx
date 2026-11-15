@@ -14,6 +14,15 @@ export interface RegisteredSiteItem {
   registered_at?: string;
 }
 
+export interface RegisteredDeviceItem {
+  id: number;
+  name: string;
+  ip_address: string;
+  device_type: string;
+  is_active: boolean;
+  registered_at?: string;
+}
+
 interface SourceContextType {
   sourceType: SourceType;
   setSourceType: (type: SourceType) => void;
@@ -22,6 +31,12 @@ interface SourceContextType {
   sites: RegisteredSiteItem[];
   refreshSites: () => Promise<void>;
   activateSite: (siteId: number) => Promise<boolean>;
+  // Home-network devices: a client-side view filter (which registered device the
+  // dashboard is scoped to). No backend "activate" — all devices stay ingesting.
+  activeDevice: RegisteredDeviceItem | null;
+  setActiveDevice: (device: RegisteredDeviceItem | null) => void;
+  devices: RegisteredDeviceItem[];
+  refreshDevices: () => Promise<void>;
 }
 
 const SourceContext = createContext<SourceContextType | undefined>(undefined);
@@ -39,6 +54,18 @@ export const SourceProvider = ({ children }: { children: ReactNode }) => {
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("nexa_active_site");
+        return saved ? JSON.parse(saved) : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+  const [devices, setDevices] = useState<RegisteredDeviceItem[]>([]);
+  const [activeDevice, setActiveDeviceState] = useState<RegisteredDeviceItem | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("nexa_active_device");
         return saved ? JSON.parse(saved) : null;
       } catch {
         return null;
@@ -65,6 +92,17 @@ export const SourceProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const setActiveDevice = (device: RegisteredDeviceItem | null) => {
+    setActiveDeviceState(device);
+    if (typeof window !== "undefined") {
+      if (device) {
+        localStorage.setItem("nexa_active_device", JSON.stringify(device));
+      } else {
+        localStorage.removeItem("nexa_active_device");
+      }
+    }
+  };
+
   const refreshSites = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/sites/`);
@@ -87,9 +125,38 @@ export const SourceProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
+  const refreshDevices = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/devices/`);
+      if (res.ok) {
+        const data = await res.json();
+        const list: RegisteredDeviceItem[] = Array.isArray(data) ? data : (data.results || []);
+        setDevices(list);
+
+        // Keep the previously selected device if it still exists; else fall back
+        // to the first registered device. Purely a dashboard view scope.
+        const fallback = list[0] || null;
+        setActiveDeviceState((prev) => {
+          const target = (prev && list.find((d) => d.id === prev.id)) || fallback;
+          if (typeof window !== "undefined") {
+            if (target) {
+              localStorage.setItem("nexa_active_device", JSON.stringify(target));
+            } else {
+              localStorage.removeItem("nexa_active_device");
+            }
+          }
+          return target;
+        });
+      }
+    } catch (e) {
+      console.error("Failed to load devices:", e);
+    }
+  }, []);
+
   useEffect(() => {
     refreshSites();
-  }, [refreshSites]);
+    refreshDevices();
+  }, [refreshSites, refreshDevices]);
 
   const activateSite = async (siteId: number): Promise<boolean> => {
     try {
@@ -120,6 +187,10 @@ export const SourceProvider = ({ children }: { children: ReactNode }) => {
         sites,
         refreshSites,
         activateSite,
+        activeDevice,
+        setActiveDevice,
+        devices,
+        refreshDevices,
       }}
     >
       {children}
