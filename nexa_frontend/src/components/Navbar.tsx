@@ -1,7 +1,7 @@
 "use client";
 
 import { LogOut, Moon, Plus, Settings, Sun, User } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { API_BASE_URL } from "@/lib/api";
 import NotificationBell from "./NotificationBell";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
@@ -35,7 +35,21 @@ import {
 
 const Navbar = () => {
   const { setTheme } = useTheme();
-  const { sourceType, setSourceType, activeSite, sites, activateSite } = useSource();
+  const {
+    sourceType,
+    setSourceType,
+    activeSite,
+    sites,
+    activateSite,
+    activeDevice,
+    setActiveDevice,
+    devices,
+  } = useSource();
+  // Avoid a hydration mismatch: activeSite/activeDevice come from localStorage, so
+  // the personalized greeting differs between SSR and the first client render. Only
+  // show it after mount; SSR + first client render both show the neutral text.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [isResetting, setIsResetting] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingSiteId, setPendingSiteId] = useState<number | null>(null);
@@ -71,9 +85,11 @@ const Navbar = () => {
             Hi, Admin <span className="font-display italic font-normal text-muted-foreground">!</span>
           </h1>
           <p className="text-sm text-muted-foreground hidden sm:block">
-            {sourceType === "website" && activeSite
+            {mounted && sourceType === "website" && activeSite
               ? `Here's what's happening on ${activeSite.name} today.`
-              : "Here's what's happening on your network today."}
+              : mounted && sourceType === "home_network" && activeDevice
+                ? `Here's what's happening on ${activeDevice.name} today.`
+                : "Here's what's happening on your network today."}
           </p>
         </div>
       </div>
@@ -113,6 +129,33 @@ const Navbar = () => {
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{site.name}</span>
                       <span className="text-[10px] text-muted-foreground">({site.domain})</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {sourceType === "home_network" && devices.length > 0 && (
+            <Select
+              value={activeDevice ? String(activeDevice.id) : ""}
+              onValueChange={(val) => {
+                const deviceId = Number(val);
+                if (deviceId && deviceId !== activeDevice?.id) {
+                  const target = devices.find((d) => d.id === deviceId) || null;
+                  setActiveDevice(target);
+                }
+              }}
+            >
+              <SelectTrigger className="h-10 min-w-[150px] max-w-[200px] rounded-full border-border bg-card text-xs font-medium px-4">
+                <span className="truncate">{activeDevice?.name || "Select device"}</span>
+              </SelectTrigger>
+              <SelectContent>
+                {devices.map((device) => (
+                  <SelectItem key={device.id} value={String(device.id)}>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{device.name}</span>
+                      <span className="text-[10px] text-muted-foreground">({device.ip_address})</span>
                     </div>
                   </SelectItem>
                 ))}

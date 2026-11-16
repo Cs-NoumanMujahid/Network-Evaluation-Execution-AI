@@ -25,27 +25,29 @@ async function fetchRecent(url: string): Promise<AlertResultLite[]> {
  * fresh. Failures resolve to empty arrays rather than throwing.
  */
 export function useNotificationAlerts() {
-  const { activeSite } = useSource();
+  const { activeSite, activeDevice } = useSource();
   const [website, setWebsite] = useState<AlertResultLite[]>([]);
   const [home, setHome] = useState<AlertResultLite[]>([]);
   const [loading, setLoading] = useState(true);
 
   const siteId = activeSite?.id;
+  const deviceId = activeDevice?.id;
 
   const load = useCallback(async () => {
     const siteParam = siteId ? `&registered_id=${siteId}` : "";
+    const deviceParam = deviceId ? `&registered_id=${deviceId}` : "";
     const [web, hn] = await Promise.all([
       fetchRecent(
         `${API_BASE_URL}/alerts/?source_type=website&page=1&limit=${LIMIT}${siteParam}`,
       ),
       fetchRecent(
-        `${API_BASE_URL}/alerts/?source_type=home_network&page=1&limit=${LIMIT}`,
+        `${API_BASE_URL}/alerts/?source_type=home_network&page=1&limit=${LIMIT}${deviceParam}`,
       ),
     ]);
     setWebsite(web);
     setHome(hn);
     setLoading(false);
-  }, [siteId]);
+  }, [siteId, deviceId]);
 
   useEffect(() => {
     load();

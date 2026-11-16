@@ -362,6 +362,86 @@ services:
       - ./pcaps_iot_test:/pcaps_iot_test
     restart: unless-stopped
 
+  # ── IoT Cloud peer ─────────────────────────────────────────────────────────
+  # The "internet / cloud / DNS" endpoint the 3 simulated devices talk to for
+  # their benign traffic. Deliberately UNREGISTERED (its IP is never a
+  # RegisteredDevice), so every victim<->cloud flow is attributed to the victim.
+  iot-cloud:
+    build: ./iot_cloud
+    container_name: iot-cloud
+    environment:
+      - SELF_IP=172.20.0.60
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.60
+    restart: unless-stopped
+
+  # ── IoT Victim Devices (real home_network lane) ────────────────────────────
+  # Three device-shaped victims. Each runs device-like services (http/ssh/telnet/
+  # tls) as a real two-sided attack target, generates device-appropriate benign
+  # traffic to iot-cloud, and self-captures its OWN eth0 into the SHARED
+  # ./pcaps_iot folder. The backend attributes each flow to the matching
+  # RegisteredDevice by IP (register .61/.62/.63 in the UI). Attacks are launched
+  # manually from the existing iot-attacker, e.g.:
+  #   docker exec -e TARGET_HOST=172.20.0.61 -e DURATION=60 \
+  #       iot-attacker sh /attack_simulation/dos_attack.sh
+  iot-victim-doorbell:
+    build: ./iot_devices
+    container_name: iot-victim-doorbell
+    environment:
+      - DEVICE_NAME=doorbell
+      - BENIGN_PROFILE=doorbell
+      - PEER=172.20.0.60
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./pcaps_iot:/pcaps_iot
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.61
+    depends_on:
+      - iot-cloud
+    restart: unless-stopped
+
+  iot-victim-router:
+    build: ./iot_devices
+    container_name: iot-victim-router
+    environment:
+      - DEVICE_NAME=router
+      - BENIGN_PROFILE=router
+      - PEER=172.20.0.60
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./pcaps_iot:/pcaps_iot
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.62
+    depends_on:
+      - iot-cloud
+    restart: unless-stopped
+
+  iot-victim-lan:
+    build: ./iot_devices
+    container_name: iot-victim-lan
+    environment:
+      - DEVICE_NAME=lan
+      - BENIGN_PROFILE=lan
+      - PEER=172.20.0.60
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./pcaps_iot:/pcaps_iot
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.63
+    depends_on:
+      - iot-cloud
+    restart: unless-stopped
+
   nexa-frontend:
     build: ./nexa_frontend
     container_name: nexa-frontend

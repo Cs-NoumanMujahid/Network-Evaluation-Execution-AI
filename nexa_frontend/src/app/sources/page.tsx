@@ -58,7 +58,7 @@ interface Device {
 }
 
 export default function SourcesPage() {
-  const { activateSite, refreshSites } = useSource();
+  const { activateSite, refreshSites, refreshDevices } = useSource();
   const [sites, setSites] = useState<Site[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,6 +88,7 @@ export default function SourcesPage() {
       if (sitesRes.ok) setSites(await sitesRes.ok ? await sitesRes.json() : []);
       if (devicesRes.ok) setDevices(await devicesRes.ok ? await devicesRes.json() : []);
       await refreshSites();
+      await refreshDevices();
     } catch {
       toast.error("Failed to load sources. Check your backend connection.");
     } finally {
@@ -192,6 +193,8 @@ export default function SourcesPage() {
         return <Router className="h-3.5 w-3.5" />;
       case "doorbell":
         return <Tv className="h-3.5 w-3.5" />;
+      case "lan":
+        return <Globe className="h-3.5 w-3.5" />;
       case "phone":
         return <Smartphone className="h-3.5 w-3.5" />;
       default:
@@ -453,6 +456,7 @@ export default function SourcesPage() {
                     <SelectItem value="camera">IP Camera</SelectItem>
                     <SelectItem value="router">Router / Switch</SelectItem>
                     <SelectItem value="doorbell">IP Doorbell</SelectItem>
+                    <SelectItem value="lan">LAN / Network</SelectItem>
                     <SelectItem value="phone">Mobile Phone</SelectItem>
                     <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
