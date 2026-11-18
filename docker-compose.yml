@@ -341,6 +341,34 @@ services:
     command: tail -f /dev/null
     restart: unless-stopped
 
+  # ── Auto-Attacker (orchestrator) ──────────────────────────────────────────
+  # OFF by default. Start with:  docker compose --profile attacks up -d --build auto-attacker
+  # 2-min benign warm-up, then one sequential pass of all 9 scenarios against ONE
+  # chosen registered device (TARGET_DEVICE_IP). Each scenario sends REAL attack
+  # packets AND injects the matching perturbed banks_spread flows into ./flows_iot
+  # (the real home_network lane) so the device dashboard shows the correct class
+  # at ~30-95% confidence. Manual `docker exec iot-attacker ...` is unaffected.
+  auto-attacker:
+    build: ./attack_orchestrator
+    container_name: auto-attacker
+    profiles: ["attacks"]
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      AUTO_ATTACK: "1"
+      TARGET_DEVICE_IP: "172.20.0.61"   # doorbell .61 | router .62 | lan .63
+      ATTACKER_IP: "172.20.0.202"
+      WARMUP: "120"
+      INTENSITY: "low"
+    volumes:
+      - ./attack_simulation:/attack_simulation
+      - ./flows_iot:/flows_iot
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.202
+    restart: "no"
+
   # ── IoT Victim Device ─────────────────────────────────────────────────────
   # Simulated IoT device target. Self-captures its own traffic into the ISOLATED
   # ./pcaps_iot_test folder (processed by cicflow, never feeds the live pipeline).
