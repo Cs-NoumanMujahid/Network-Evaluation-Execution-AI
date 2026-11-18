@@ -26,6 +26,7 @@ urlpatterns = [
     path('simulation/status/', views.SimulationStatusView.as_view()),
     path('simulation/stop/', views.SimulationStopView.as_view()),
     path('simulation/live-feed/', views.SimulationLiveFeedView.as_view()),
+    path('simulation/summary/', views.SimulationSummaryView.as_view()),
     path('incidents/', views.IncidentListView.as_view()),
     path('incidents/stats/', views.IncidentStatsView.as_view()),
     path('incidents/timeline/', views.IncidentTimelineView.as_view()),

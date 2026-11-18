@@ -10,6 +10,7 @@ import {
   Clock,
   CheckCircle2,
 } from "lucide-react";
+import Link from "next/link";
 import { API_BASE_URL } from "@/lib/api";
 import { useSource } from "@/components/providers/SourceContext";
 import { Card } from "@/components/ui/card";
@@ -28,12 +29,27 @@ import { severityColors } from "@/lib/theme";
 
 interface FlowLog {
   id?: number | string;
+  source_type?: string;
   timestamp: string;
   src_ip: string;
   dst_ip: string;
   prediction: string;
   confidence: number;
   severity: string;
+}
+
+// Per-device IoT run stats from /simulation/summary/ (computed server-side over
+// ALL injected flows of the run, not just the ones broadcast to the live log).
+interface IotRunSummary {
+  available: boolean;
+  attack_type?: string;
+  attack_flows: number;
+  alerts: number;
+  by_prediction: Record<string, number>;
+  conf_min: number | null;
+  conf_avg: number | null;
+  conf_max: number | null;
+  device_benign_flows: number;
 }
 
 interface EventLog {
@@ -114,11 +130,21 @@ function clearSimState() {
 }
 
 export default function SimulationPage() {
-  const { sourceType } = useSource();
-  const scenarioOptions = sourceType === "home_network" ? IOT_SCENARIOS : WEB_SCENARIOS;
+  const { sourceType, devices, activeDevice } = useSource();
+  const isIot = sourceType === "home_network";
+  const scenarioOptions = isIot ? IOT_SCENARIOS : WEB_SCENARIOS;
+  const activeDevices = useMemo(() => devices.filter((d) => d.is_active), [devices]);
 
   // Restore any persisted view for this source lane (once, at mount).
   const [restored] = useState(() => loadSimState(sourceType));
+
+  // IoT lane: which registered device the simulation runs against.
+  const [deviceId, setDeviceId] = useState<string>(
+    restored?.deviceId ?? (activeDevice ? String(activeDevice.id) : "")
+  );
+  const selectedDevice = activeDevices.find((d) => String(d.id) === deviceId) || null;
+  const [sessionId, setSessionId] = useState<number | null>(restored?.sessionId ?? null);
+  const [iotSummary, setIotSummary] = useState<IotRunSummary | null>(restored?.iotSummary ?? null);
 
   const [isRunning, setIsRunning] = useState<boolean>(restored?.isRunning ?? false);
   const [scenario, setScenario] = useState<string>(restored?.scenario ?? "bruteforce");
@@ -196,6 +222,17 @@ export default function SimulationPage() {
     }
   }, [scenarioOptions, scenario]);
 
+  // Keep the selected device valid (default: the dashboard's active device,
+  // else the first registered device). Never change it mid-run.
+  useEffect(() => {
+    if (!isIot || isRunning) return;
+    if (!activeDevices.some((d) => String(d.id) === deviceId)) {
+      const fallback =
+        (activeDevice && activeDevices.find((d) => d.id === activeDevice.id)) || activeDevices[0];
+      setDeviceId(fallback ? String(fallback.id) : "");
+    }
+  }, [isIot, isRunning, activeDevices, activeDevice, deviceId]);
+
   // Clear previous results/logs ONLY on a real source switch (web <-> home network).
   // Skipping the initial mount is what lets a tab switch restore persisted state
   // instead of wiping it.
@@ -214,6 +251,8 @@ export default function SimulationPage() {
     setStats({ flows: 0, alerts: 0 });
     setTrafficVolumeData(null);
     setElapsed(0);
+    setIotSummary(null);
+    setSessionId(null);
     clearSimState();
   }, [sourceType]);
 
@@ -236,12 +275,29 @@ export default function SimulationPage() {
           liveFlows,
           events,
           lastRunSummary,
+          deviceId,
+          sessionId,
+          iotSummary,
         })
       );
     } catch {
       /* ignore quota/availability errors */
     }
-  }, [sourceType, scenario, target, duration, intensity, isRunning, stats, elapsed, liveFlows, events, lastRunSummary]);
+  }, [sourceType, scenario, target, duration, intensity, isRunning, stats, elapsed, liveFlows, events, lastRunSummary, deviceId, sessionId, iotSummary]);
+
+  // Per-device IoT run stats (server-side, over every injected flow of the run).
+  const fetchIotSummary = useCallback(async (sid: number | null) => {
+    if (sid == null) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/simulation/summary/?session_id=${sid}`).catch(() => null);
+      if (res && res.ok) {
+        const data = await res.json();
+        if (data.available) setIotSummary(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
 
   // Append clean timeline events
   const addEvent = useCallback((message: string, type: "info" | "threat" | "system" = "info") => {
@@ -287,23 +343,40 @@ export default function SimulationPage() {
     setStats({ flows: 0, alerts: 0 });
     setTrafficVolumeData(null);
     setElapsed(0);
-    addEvent(`Initializing scenario: ${scenario.toUpperCase()} targeting ${target}...`, "system");
+    setIotSummary(null);
+    const targetLabel = isIot && selectedDevice
+      ? `${selectedDevice.name} (${selectedDevice.ip_address})`
+      : target;
+    addEvent(`Initializing scenario: ${scenario.toUpperCase()} targeting ${targetLabel}...`, "system");
     // Lane this run belongs to: web scenarios -> website (CNN); home-network -> iot_test (TON-IoT)
-    const simSourceType = sourceType === "home_network" ? "iot_test" : "website";
+    const simSourceType = isIot ? "iot_test" : "website";
     try {
       const res = await fetch(`${API_BASE_URL}/simulation/start/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attack_type: scenario, target: target, intensity: intensity, duration: duration, source_type: simSourceType }),
+        body: JSON.stringify({
+          attack_type: scenario,
+          target: isIot && selectedDevice ? selectedDevice.ip_address : target,
+          intensity: intensity,
+          duration: duration,
+          source_type: simSourceType,
+          ...(isIot && selectedDevice ? { device_id: selectedDevice.id } : {}),
+        }),
       });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setSessionId(data.session_id ?? null);
         lastActionTimeRef.current = Date.now();
         setIsRunning(true);
         fetchTrafficVolume();
         addEvent("Simulation pipeline started successfully", "system");
+        if (isIot) {
+          addEvent("Device's real traffic + dataset-shaped attack flows are now being analyzed", "system");
+        }
       } else {
-        addEvent("Failure starting simulation on backend container", "threat");
-        alert("Failed to start simulation. Verify Docker setup is active.");
+        const data = await res.json().catch(() => ({}));
+        addEvent(data.error || "Failure starting simulation on backend container", "threat");
+        alert(data.error || "Failed to start simulation. Verify Docker setup is active.");
       }
     } catch (e) {
       console.error(e);
@@ -311,7 +384,7 @@ export default function SimulationPage() {
     } finally {
       setActionLoading(false);
     }
-  }, [scenario, target, intensity, duration, sourceType, addEvent, fetchTrafficVolume]);
+  }, [scenario, target, intensity, duration, isIot, selectedDevice, addEvent, fetchTrafficVolume]);
 
   const handleStopAttack = useCallback(async () => {
     setActionLoading(true);
@@ -327,6 +400,11 @@ export default function SimulationPage() {
         fetchTrafficVolume();
         // Hard stop: freeze the summary from the flows collected during the run.
         buildSummary();
+        if (isIot) {
+          // Fetch now, then again once flows still in the pipeline have landed.
+          fetchIotSummary(sessionId);
+          setTimeout(() => fetchIotSummary(sessionId), 10000);
+        }
       } else {
         alert("Failed to stop simulation.");
       }
@@ -335,7 +413,7 @@ export default function SimulationPage() {
     } finally {
       setActionLoading(false);
     }
-  }, [addEvent, buildSummary, fetchTrafficVolume]);
+  }, [addEvent, buildSummary, fetchTrafficVolume, fetchIotSummary, isIot, sessionId]);
 
   // Check backend status on mount
   useEffect(() => {
@@ -347,6 +425,8 @@ export default function SimulationPage() {
           setIsRunning(data.is_running);
           if (data.is_running) {
             setScenario(data.attack_type);
+            if (data.session_id) setSessionId(data.session_id);
+            if (data.registered_id) setDeviceId(String(data.registered_id));
             setStats({
               flows: data.flows_generated,
               alerts: data.alerts_triggered,
@@ -427,11 +507,14 @@ export default function SimulationPage() {
                 if (prev.some((f) => f.timestamp === data.latest_flow.timestamp && f.prediction === data.latest_flow.prediction)) {
                   return prev;
                 }
-                const isThreat = data.latest_flow.prediction.toLowerCase() !== "benign";
+                const lf = data.latest_flow;
+                const isThreat = lf.prediction.toLowerCase() !== "benign";
+                const conf = typeof lf.confidence === "number" ? ` @ ${(lf.confidence * 100).toFixed(0)}%` : "";
+                const origin = lf.source_type === "home_network" ? "device traffic" : "flow";
                 if (isThreat) {
-                  addEvent(`Threat classified: ${data.latest_flow.prediction} from ${data.latest_flow.src_ip} (Severity: ${data.latest_flow.severity})`, "threat");
+                  addEvent(`Threat classified: ${lf.prediction}${conf} ${lf.src_ip} → ${lf.dst_ip} (Severity: ${lf.severity})`, "threat");
                 } else {
-                  addEvent(`Benign network flow analyzed`, "info");
+                  addEvent(`Benign ${origin} analyzed${conf} ${lf.src_ip} → ${lf.dst_ip}`, "info");
                 }
                 const next = [data.latest_flow, ...prev].slice(0, 30);
                 liveFlowsRef.current = next;
@@ -536,15 +619,37 @@ export default function SimulationPage() {
             </Select>
           </div>
 
-          <div className="space-y-1.5 w-full">
-            <label className="text-xs font-medium text-muted-foreground">Target Host</label>
-            <Input
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              disabled={isRunning}
-              className="w-full h-10 rounded-xl bg-muted/30 border-border"
-            />
-          </div>
+          {isIot ? (
+            <div className="space-y-1.5 w-full">
+              <label className="text-xs font-medium text-muted-foreground">Target Device</label>
+              <Select
+                value={deviceId}
+                onValueChange={setDeviceId}
+                disabled={isRunning || activeDevices.length === 0}
+              >
+                <SelectTrigger className="w-full h-10 rounded-xl bg-muted/30">
+                  <SelectValue placeholder={activeDevices.length ? "Select device" : "No registered devices"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeDevices.map((d) => (
+                    <SelectItem key={d.id} value={String(d.id)}>
+                      {d.name} ({d.ip_address})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <div className="space-y-1.5 w-full">
+              <label className="text-xs font-medium text-muted-foreground">Target Host</label>
+              <Input
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                disabled={isRunning}
+                className="w-full h-10 rounded-xl bg-muted/30 border-border"
+              />
+            </div>
+          )}
 
           <div className="space-y-1.5 w-full">
             <label className="text-xs font-medium text-muted-foreground">Duration</label>
@@ -576,6 +681,13 @@ export default function SimulationPage() {
           </div>
         </div>
 
+        {isIot && activeDevices.length === 0 && (
+          <p className="text-xs text-muted-foreground mt-4 text-center">
+            No registered IoT devices. Register one on the{" "}
+            <Link href="/sources" className="underline text-foreground">Sources</Link> page to run a simulation.
+          </p>
+        )}
+
         <div className="flex justify-center mt-6">
           {isRunning ? (
             <Button
@@ -590,7 +702,7 @@ export default function SimulationPage() {
           ) : (
             <Button
               onClick={handleStartAttack}
-              disabled={actionLoading}
+              disabled={actionLoading || (isIot && !selectedDevice)}
               className="w-full md:w-56 h-10 rounded-full bg-foreground text-background hover:bg-foreground/90 font-medium gap-2 shadow-xs cursor-pointer"
             >
               <Play className="h-4 w-4 fill-current" />
@@ -643,6 +755,64 @@ export default function SimulationPage() {
               </div>
             </div>
           </div>
+
+          {isIot && iotSummary && (() => {
+            const expected = (scenarioMapping[iotSummary.attack_type || scenario]?.expected || "").toLowerCase();
+            const hits = Object.entries(iotSummary.by_prediction)
+              .filter(([p]) => p.toLowerCase() === expected)
+              .reduce((a, [, c]) => a + c, 0);
+            const rate = iotSummary.attack_flows ? (hits / iotSummary.attack_flows) * 100 : 0;
+            const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
+            const mix = Object.entries(iotSummary.by_prediction).sort((a, b) => b[1] - a[1]);
+            return (
+              <div className="mt-6 pt-4 border-t border-border">
+                <h3 className="text-xs font-semibold text-foreground mb-3">
+                  Device Evaluation{selectedDevice ? ` · ${selectedDevice.name} (${selectedDevice.ip_address})` : ""}
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-3">
+                    <div className="flex justify-between border-b border-border/40 pb-2 text-xs">
+                      <span className="text-muted-foreground">Detection Rate</span>
+                      <span className="text-foreground font-mono font-semibold">
+                        {rate.toFixed(1)}% ({hits}/{iotSummary.attack_flows})
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b border-border/40 pb-2 text-xs">
+                      <span className="text-muted-foreground">Confidence (min / avg / max)</span>
+                      <span className="text-foreground font-mono font-semibold">
+                        {pct(iotSummary.conf_min)} / {pct(iotSummary.conf_avg)} / {pct(iotSummary.conf_max)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b border-border/40 pb-2 text-xs">
+                      <span className="text-muted-foreground">Device Real Traffic Flows</span>
+                      <span className="text-foreground font-mono font-semibold">
+                        {iotSummary.device_benign_flows.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <span className="text-xs text-muted-foreground">Prediction Mix (attack flows)</span>
+                    {mix.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">No attack flows recorded yet.</p>
+                    ) : (
+                      mix.map(([p, c]) => (
+                        <div key={p} className="flex items-center gap-2 text-xs">
+                          <span className="w-24 shrink-0 font-mono text-foreground truncate">{p}</span>
+                          <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                            <div
+                              className={`h-full ${p.toLowerCase() === expected ? "bg-emerald-500" : "bg-muted-foreground/50"}`}
+                              style={{ width: `${(c / iotSummary.attack_flows) * 100}%` }}
+                            />
+                          </div>
+                          <span className="w-10 text-right font-mono text-muted-foreground">{c}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

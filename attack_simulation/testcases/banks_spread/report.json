@@ -1,0 +1,227 @@
+{
+  "iotdos": {
+    "label": "dos",
+    "rows": 1000,
+    "bins": {
+      "0.80-0.95": {
+        "quota": 650,
+        "got": 650
+      },
+      "0.50-0.80": {
+        "quota": 200,
+        "got": 200
+      },
+      "0.30-0.50": {
+        "quota": 80,
+        "got": 80
+      },
+      "0.00-0.30": {
+        "quota": 70,
+        "got": 70
+      }
+    },
+    "conf_min": 0.2166,
+    "conf_mean": 0.7574,
+    "conf_max": 0.9499
+  },
+  "iotddos": {
+    "label": "ddos",
+    "rows": 973,
+    "bins": {
+      "0.80-0.95": {
+        "quota": 650,
+        "got": 650
+      },
+      "0.50-0.80": {
+        "quota": 200,
+        "got": 200
+      },
+      "0.30-0.50": {
+        "quota": 80,
+        "got": 80
+      },
+      "0.00-0.30": {
+        "quota": 70,
+        "got": 43
+      }
+    },
+    "conf_min": 0.2226,
+    "conf_mean": 0.7862,
+    "conf_max": 0.95
+  },
+  "iotslowloris": {
+    "label": "slowloris",
+    "rows": 832,
+    "bins": {
+      "0.80-0.95": {
+        "quota": 650,
+        "got": 482
+      },
+      "0.50-0.80": {
+        "quota": 200,
+        "got": 200
+      },
+      "0.30-0.50": {
+        "quota": 80,
+        "got": 80
+      },
+      "0.00-0.30": {
+        "quota": 70,
+        "got": 70
+      }
+    },
+    "conf_min": 0.2346,
+    "conf_mean": 0.7047,
+    "conf_max": 0.9494
+  },
+  "iotbruteforce": {
+    "label": "Bruteforce",
+    "rows": 1000,
+    "bins": {
+      "0.80-0.95": {
+        "quota": 650,
+        "got": 650
+      },
+      "0.50-0.80": {
+        "quota": 200,
+        "got": 200
+      },
+      "0.30-0.50": {
+        "quota": 80,
+        "got": 80
+      },
+      "0.00-0.30": {
+        "quota": 70,
+        "got": 70
+      }
+    },
+    "conf_min": 0.191,
+    "conf_mean": 0.7569,
+    "conf_max": 0.9497
+  },
+  "iotmitm": {
+    "label": "MITM",
+    "rows": 1000,
+    "bins": {
+      "0.80-0.95": {
+        "quota": 650,
+        "got": 650
+      },
+      "0.50-0.80": {
+        "quota": 200,
+        "got": 200
+      },
+      "0.30-0.50": {
+        "quota": 80,
+        "got": 80
+      },
+      "0.00-0.30": {
+        "quota": 70,
+        "got": 70
+      }
+    },
+    "conf_min": 0.2041,
+    "conf_mean": 0.7602,
+    "conf_max": 0.9499
+  },
+  "iotevasion": {
+    "label": "Evasion",
+    "rows": 1000,
+    "bins": {
+      "0.80-0.95": {
+        "quota": 650,
+        "got": 650
+      },
+      "0.50-0.80": {
+        "quota": 200,
+        "got": 200
+      },
+      "0.30-0.50": {
+        "quota": 80,
+        "got": 80
+      },
+      "0.00-0.30": {
+        "quota": 70,
+        "got": 70
+      }
+    },
+    "conf_min": 0.2219,
+    "conf_mean": 0.747,
+    "conf_max": 0.95
+  },
+  "iotc2beac": {
+    "label": "C2Beac",
+    "rows": 1000,
+    "bins": {
+      "0.80-0.95": {
+        "quota": 650,
+        "got": 650
+      },
+      "0.50-0.80": {
+        "quota": 200,
+        "got": 200
+      },
+      "0.30-0.50": {
+        "quota": 80,
+        "got": 80
+      },
+      "0.00-0.30": {
+        "quota": 70,
+        "got": 70
+      }
+    },
+    "conf_min": 0.2352,
+    "conf_mean": 0.7621,
+    "conf_max": 0.9499
+  },
+  "iotexfil": {
+    "label": "Exfiltracion",
+    "rows": 1000,
+    "bins": {
+      "0.80-0.95": {
+        "quota": 650,
+        "got": 650
+      },
+      "0.50-0.80": {
+        "quota": 200,
+        "got": 200
+      },
+      "0.30-0.50": {
+        "quota": 80,
+        "got": 80
+      },
+      "0.00-0.30": {
+        "quota": 70,
+        "got": 70
+      }
+    },
+    "conf_min": 0.2174,
+    "conf_mean": 0.7672,
+    "conf_max": 0.95
+  },
+  "iottlsssl": {
+    "label": "TLSSSL",
+    "rows": 1000,
+    "bins": {
+      "0.80-0.95": {
+        "quota": 650,
+        "got": 650
+      },
+      "0.50-0.80": {
+        "quota": 200,
+        "got": 200
+      },
+      "0.30-0.50": {
+        "quota": 80,
+        "got": 80
+      },
+      "0.00-0.30": {
+        "quota": 70,
+        "got": 70
+      }
+    },
+    "conf_min": 0.2132,
+    "conf_mean": 0.7631,
+    "conf_max": 0.9499
+  }
+}

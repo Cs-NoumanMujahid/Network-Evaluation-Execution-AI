@@ -13,6 +13,9 @@ _REPO = os.path.abspath(os.path.join(_HERE, "..", ".."))          # repo root
 _TESTCASES = os.path.join(_REPO, "attack_simulation", "testcases")
 _INJECTOR = os.path.join(_TESTCASES, "inject_testcase.py")
 _BANK_DIR = os.path.join(_TESTCASES, "banks")
+# Per-device runs use the confidence-spread banks (dataset-shaped but perturbed,
+# conf ~0.2-0.95) built by build_spread_banks.py; fall back to the old banks.
+_SPREAD_BANK_DIR = os.path.join(_TESTCASES, "banks_spread")
 _FLOWS_TEST_DIR = os.path.join(_REPO, "flows_iot_test")
 IOT_TESTCASE_SCENARIOS = {
     "iotdos", "iotddos", "iotslowloris", "iotbruteforce", "iotmitm",
@@ -65,7 +68,7 @@ current_process = None
 process_lock = threading.Lock()
 
 
-def start_attack_process(attack_type, target=None, intensity=None, duration=None):
+def start_attack_process(attack_type, target=None, intensity=None, duration=None, device_ip=None):
     global current_process
     raw = str(attack_type or '').lower().replace(' ', '').replace('_', '').replace('-', '')
     # IoT / home-network scenarios are matched first (ids are 'iot'-prefixed) so e.g.
@@ -113,8 +116,14 @@ def start_attack_process(attack_type, target=None, intensity=None, duration=None
             dur = int(duration) if duration else 60
         except (TypeError, ValueError):
             dur = 60
+        bank_dir = _BANK_DIR
+        if device_ip and os.path.isfile(os.path.join(_SPREAD_BANK_DIR, iot_scenario + ".csv")):
+            bank_dir = _SPREAD_BANK_DIR
         command = [sys.executable, _INJECTOR, iot_scenario, str(count), str(dur),
-                   _FLOWS_TEST_DIR, _BANK_DIR]
+                   _FLOWS_TEST_DIR, bank_dir]
+        if device_ip:
+            # Re-address every injected flow to the selected registered device.
+            command += ["--device-ip", str(device_ip)]
         with process_lock:
             # Supersede any still-running injector (so switching scenarios works
             # without pressing Stop first), then wipe the previous run's files so

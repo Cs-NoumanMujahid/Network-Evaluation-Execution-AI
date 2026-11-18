@@ -144,6 +144,8 @@ class SimulationSession(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
     # Which detection lane this run belongs to: 'website' (CNN) or 'iot_test' (TON-IoT)
     source_type = models.CharField(max_length=30, default='website')
+    # IoT per-device runs: the RegisteredDevice id under test (None for web runs).
+    registered_id = models.CharField(max_length=50, null=True, blank=True)
     started_at = models.DateTimeField(auto_now_add=True)
     stopped_at = models.DateTimeField(null=True, blank=True)
     flows_generated = models.IntegerField(default=0)
