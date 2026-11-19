@@ -322,7 +322,16 @@ class FlowIngestView(APIView):
         # into a home-network (iot_test) run and vice-versa.
         session = SimulationSession.objects.filter(status='running').first()
         if session:
-            matched = [f for f in created_flows if f.source_type == session.source_type]
+            if session.registered_id:
+                # Per-device IoT run: the injected attack flows (iot_test) AND the
+                # device's own real traffic (home_network), both for that device.
+                matched = [
+                    f for f in created_flows
+                    if f.source_type in ('iot_test', 'home_network')
+                    and str(f.registered_id) == str(session.registered_id)
+                ]
+            else:
+                matched = [f for f in created_flows if f.source_type == session.source_type]
             if matched:
                 session.flows_generated += len(matched)
                 session.alerts_triggered += sum(1 for f in matched if f.is_alert)
@@ -336,6 +345,7 @@ class FlowIngestView(APIView):
                 _ts = last.timestamp
                 latest_flow = {
                     'id': last.id,
+                    'source_type': last.source_type,
                     'src_ip': last.src_ip,
                     'dst_ip': last.dst_ip,
                     'prediction': last.prediction,
@@ -1049,17 +1059,37 @@ class SimulationStartView(APIView):
         intensity = request.data.get('intensity')
         duration = request.data.get('duration')
         source_type = request.data.get('source_type') or 'website'
+        device_id = request.data.get('device_id')
+        device = None
+        if source_type == 'iot_test':
+            # Per-device IoT simulation: the run is scoped to one registered device.
+            if device_id:
+                device = RegisteredDevice.objects.filter(id=device_id, is_active=True).first()
+            if device is None:
+                return Response(
+                    {'error': 'Select an active registered device for the IoT simulation.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            target = device.ip_address
+        # Close any session left 'running' (e.g. auto-stop never reached the API)
+        # so the new run's counters and live feed start clean.
+        SimulationSession.objects.filter(status='running').update(
+            status='stopped', stopped_at=timezone.now()
+        )
         session = SimulationSession.objects.create(
-            attack_type=attack_type, status='running', source_type=source_type
+            attack_type=attack_type, status='running', source_type=source_type,
+            registered_id=str(device.id) if device else None,
         )
         threading.Thread(
             target=start_attack_process,
             args=(attack_type, target, intensity, duration),
+            kwargs={'device_ip': device.ip_address if device else None},
             daemon=True,
         ).start()
         return Response({
             'status': 'started',
             'session_id': session.id,
+            'registered_id': session.registered_id,
             'attack_type': attack_type,
             'target': target,
             'intensity': intensity,
@@ -1077,6 +1107,7 @@ class SimulationStatusView(APIView):
             {
                 'is_running': is_attack_running(),
                 'session_id': session.id,
+                'registered_id': session.registered_id,
                 'attack_type': session.attack_type,
                 'started_at': session.started_at,
                 'elapsed_seconds': elapsed,
@@ -1101,10 +1132,55 @@ class SimulationLiveFeedView(APIView):
     def get(self, request):
         session = SimulationSession.objects.filter(status='running').first()
         qs = FlowRecord.objects.order_by('-timestamp')
-        if session:
+        if session and session.registered_id:
+            qs = qs.filter(
+                timestamp__gte=session.started_at,
+                registered_id=session.registered_id,
+                source_type__in=('iot_test', 'home_network'),
+            )
+        elif session:
             qs = qs.filter(timestamp__gte=session.started_at, source_type=session.source_type)
-        flows = list(qs[:20].values('timestamp', 'src_ip', 'dst_ip', 'prediction', 'confidence', 'severity'))
+        flows = list(qs[:20].values('timestamp', 'source_type', 'src_ip', 'dst_ip',
+                                    'prediction', 'confidence', 'severity'))
         return Response({'flows': flows})
+
+
+class SimulationSummaryView(APIView):
+    """Per-run detection stats for a per-device IoT simulation.
+
+    attack = injected iot_test flows for the device; device_benign = the device's
+    own real home_network traffic captured during the run.
+    """
+
+    def get(self, request):
+        session_id = request.query_params.get('session_id')
+        session = (SimulationSession.objects.filter(id=session_id).first() if session_id
+                   else SimulationSession.objects.first())
+        if not session or not session.registered_id:
+            return Response({'available': False})
+        window = {'timestamp__gte': session.started_at}
+        if session.stopped_at:
+            # small grace: flows already in the pipeline when Stop was pressed
+            window['timestamp__lte'] = session.stopped_at + timedelta(seconds=15)
+        base = FlowRecord.objects.filter(registered_id=session.registered_id, **window)
+        attack = base.filter(source_type='iot_test')
+        agg = attack.aggregate(n=Count('id'), cmin=Min('confidence'),
+                               cavg=Avg('confidence'), cmax=Max('confidence'))
+        by_pred = {r['prediction']: r['c'] for r in
+                   attack.values('prediction').annotate(c=Count('id'))}
+        return Response({
+            'available': True,
+            'session_id': session.id,
+            'registered_id': session.registered_id,
+            'attack_type': session.attack_type,
+            'attack_flows': agg['n'] or 0,
+            'alerts': attack.filter(is_alert=True).count(),
+            'by_prediction': by_pred,
+            'conf_min': agg['cmin'],
+            'conf_avg': agg['cavg'],
+            'conf_max': agg['cmax'],
+            'device_benign_flows': base.filter(source_type='home_network').count(),
+        })
 
 
 class IncidentListView(generics.ListAPIView):

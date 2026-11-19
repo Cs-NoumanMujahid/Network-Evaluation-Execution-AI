@@ -346,6 +346,38 @@ services:
     command: tail -f /dev/null
     restart: unless-stopped
 
+  # ── Auto-Attacker (orchestrator) ──────────────────────────────────────────
+  # OFF by default. Start with:  docker compose --profile attacks up -d --build auto-attacker
+  # Waits WARMUP (device-VM benign captures flowing), then loops forever: run ONE
+  # attack scenario against ALL registered devices (TARGET_DEVICE_IPS), pause PAUSE,
+  # next scenario, cycle. Each scenario sends REAL attack packets (REAL_PACKETS=1)
+  # AND injects the matching perturbed banks_spread flows into ./flows_iot (the real
+  # home_network lane) so each device dashboard shows the correct class at ~30-95%.
+  # Benign comes from the device VMs. IoT Simulation tab + web lane are untouched.
+  # Stop with:  docker compose stop auto-attacker   (or  --profile attacks down)
+  auto-attacker:
+    build: ./attack_orchestrator
+    container_name: auto-attacker
+    profiles: ["attacks"]
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      AUTO_ATTACK: "1"
+      TARGET_DEVICE_IPS: "172.20.0.61 172.20.0.62 172.20.0.63"  # all registered devices
+      ATTACKER_IP: "172.20.0.202"
+      WARMUP: "120"      # initial wait before first attack
+      PAUSE: "120"       # benign gap between attacks
+      INTENSITY: "low"   # keep low: all devices are hit in parallel
+      REAL_PACKETS: "1"  # 0 = inject detections only (no real packets)
+    volumes:
+      - ./attack_simulation:/attack_simulation
+      - ./flows_iot:/flows_iot
+    networks:
+      nexa-net:
+        ipv4_address: 172.20.0.202
+    restart: unless-stopped
+
   # ── IoT Victim Device ─────────────────────────────────────────────────────
   # Simulated IoT device target. Self-captures its own traffic into the ISOLATED
   # ./pcaps_iot_test folder (processed by cicflow, never feeds the live pipeline).
