@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('api', '0004_alter_registereddevice_device_type'),
+        ('api', '0005_alter_registereddevice_device_type'),
     ]
 
     operations = [
